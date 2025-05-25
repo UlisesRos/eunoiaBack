@@ -1,7 +1,6 @@
 // controllers/calendarController.js
 const UserSelection = require('../models/UserSelection');
 const User = require('../models/User'); // Para consultar diasSemanales del usuario
-const { horariosPorDia } = require('../utils/horariosPorDia');
 
 // Helper para saber si estamos en el mismo mes/año
 function sameMonth(date1, date2) {
@@ -137,43 +136,30 @@ const setUserSelections = async (req, res) => {
 const getAllTurnosPorHorario = async (req, res) => {
     try {
         const allSelections = await UserSelection.find().populate('user', 'nombre apellido');
-
-        // Generar estructura vacía con todos los días y horarios posibles
-        const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
-        const allTurnos = [];
-
-        for (const dia of dias) {
-            const horarios = horariosPorDia[dia.toLowerCase()] || [];
-
-            for (const hora of horarios) {
-                allTurnos.push({ day: dia, hour: hora, users: [] });
-            }
-        }
-
-        // Crear un mapa para acceder fácilmente
+    
         const turnosMap = {};
-        allTurnos.forEach(t => {
-            turnosMap[`${t.day}-${t.hour}`] = t;
-        });
-
-        // Agregar los usuarios en los turnos correspondientes
+    
         allSelections.forEach(sel => {
             sel.selections.forEach(({ day, hour }) => {
                 const key = `${day}-${hour}`;
-                const nombreCompleto = `${sel.user.nombre} ${sel.user.apellido}`;
-                if (turnosMap[key]) {
-                    turnosMap[key].users.push(nombreCompleto);
+                if (!turnosMap[key]) {
+                    turnosMap[key] = [];
                 }
+                turnosMap[key].push(`${sel.user.nombre} ${sel.user.apellido}`);
             });
         });
+    
+        const result = Object.entries(turnosMap).map(([key, users]) => {
+            const [day, hour] = key.split('-');
+            return { day, hour, users};
+        });
 
-        const resultado = Object.values(turnosMap);
+        res.json(result);
 
-        res.json(resultado);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error al obtener los turnos.' });
-    }
+        res.status(500).json({ message: 'Error al obtener los turnos.'});
+    };
 };
 
 module.exports = {
