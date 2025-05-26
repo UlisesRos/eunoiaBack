@@ -41,20 +41,25 @@ const updatePago = async (req, res) => {
         const { pago } = req.body;
 
         const userUpdated = await User.findByIdAndUpdate(
-        req.params.id,
-        { pago },
-        { new: true }
-        );
+            req.params.id,
+            {
+                pago,
+                fechaPago: pago ? new Date() : null,
+            },
+            { new: true }
+        );  
 
         if (!userUpdated) {
-        return res.status(404).json({ message: 'Usuario no encontrado' });
+            return res.status(404).json({ message: 'Usuario no encontrado' });
         }
 
         res.status(200).json(userUpdated);
     } catch (error) {
+        console.error('Error al actualizar el pago:', error);
         res.status(500).json({ message: 'Error al actualizar el pago', error });
     }
 };
+
 
 module.exports = {
     deleteUser,

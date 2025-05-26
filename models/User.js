@@ -37,6 +37,10 @@ const userSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    fechaPago: {
+        type: Date,
+        default: null,
+    },
     rol: {
         type: String,
         enum: ['usuario', 'admin'],
