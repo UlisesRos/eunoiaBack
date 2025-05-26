@@ -29,7 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 
-app.get('/', authMiddleware, adminMiddleware, (req, res) => {
+app.get('/', (req, res) => {
     res.send('Servidor funcionando correctamente.')
 });
 
