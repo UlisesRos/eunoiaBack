@@ -14,15 +14,18 @@ function sameMonth(date1, date2) {
 const getUserSelections = async (req, res) => {
     try {
         const userId = req.user.id;
+        const userSelection = await UserSelection.findOne({ user: userId });
 
-        let userSelection = await UserSelection.findOne({ user: userId });
         if (!userSelection) {
-        // Si no tiene selección creada, devolver array vacío
-        return res.json({ selections: [] });
+            return res.json({ selections: [] });
         }
 
-        return res.json({ 
-            selections: userSelection.selections,
+        const selectionsToShow = userSelection.temporarySelections.length > 0
+            ? userSelection.temporarySelections
+            : userSelection.originalSelections;
+
+        return res.json({
+            selections: selectionsToShow,
             changesThisMonth: userSelection.changesThisMonth || 0
         });
     } catch (error) {
@@ -31,31 +34,25 @@ const getUserSelections = async (req, res) => {
     }
 };
 
+
 // Asignar o modificar los días/horarios de entrenamiento del usuario
 const setUserSelections = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { selections } = req.body; // [{ day: "Lunes", hour: "08:00" }, ...]
+        const { selections } = req.body;
 
-        // Validar estructura básica
         if (!Array.isArray(selections) || selections.length === 0) {
             return res.status(400).json({ message: 'Debe enviar al menos un día y horario.' });
         }
 
-        // Obtener info del usuario para saber cuántos días puede elegir
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
         const maxDias = user.diasSemanales;
-        if (selections.length > maxDias) {
-            return res.status(400).json({ message: `Solo puede seleccionar hasta ${maxDias} días.` });
+        if (selections.length !== maxDias) {
+            return res.status(400).json({ message: `Debe seleccionar exactamente ${maxDias} días.` });
         }
 
-        if (selections.length < maxDias) {
-            return res.status(400).json({ message: `Debe seleccionar ${maxDias} días.` });
-        }
-
-        // Validar que no haya más de un horario el mismo día
         const diasElegidos = new Set();
         for (const sel of selections) {
             if (diasElegidos.has(sel.day)) {
@@ -66,37 +63,33 @@ const setUserSelections = async (req, res) => {
             diasElegidos.add(sel.day);
         }
 
-        // Validar cupo por cada día y hora (máximo 7 personas por turno)
-        const userSelect = await UserSelection.findOne({ user: userId });
+        const countPromises = selections.map(sel =>
+            UserSelection.countDocuments({
+                $or: [
+                    { 'originalSelections': { $elemMatch: sel } },
+                    { 'temporarySelections': { $elemMatch: sel } }
+                ]
+            })
+        );
 
-        for (const sel of selections) {
-            // Verificamos si el usuario ya tenía este turno asignado
-            const yaEstabaInscripto = userSelect?.selections?.some(
-                s => s.day === sel.day && s.hour === sel.hour
-            );
-
-            const count = await UserSelection.countDocuments({
-                selections: { $elemMatch: { day: sel.day, hour: sel.hour } }
-            });
-
-            const capacidadMaxima = 7;
-
-            if (!yaEstabaInscripto && count >= capacidadMaxima) {
+        const counts = await Promise.all(countPromises);
+        for (let i = 0; i < counts.length; i++) {
+            if (counts[i] >= 7) {
                 return res.status(400).json({
-                message: `El turno ${sel.day} ${sel.hour} ya está completo.`
+                    message: `El turno ${selections[i].day} ${selections[i].hour} ya está completo.`
                 });
             }
         }
 
-        // Buscar selección previa
         let userSelection = await UserSelection.findOne({ user: userId });
         const now = new Date();
 
         if (!userSelection) {
-            // No tiene selección previa, crear nueva
+            // Primera vez: guardamos como selección original
             userSelection = new UserSelection({
                 user: userId,
-                selections,
+                originalSelections: selections,
+                temporarySelections: [],
                 changesThisMonth: 0,
                 lastChange: now
             });
@@ -104,30 +97,24 @@ const setUserSelections = async (req, res) => {
             return res.json({ message: 'Selección guardada correctamente.' });
         }
 
-        // Validar límite de cambios (máximo 2 por mes)
+        // Si ya tiene selección original → cambio temporal
         if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
             if (userSelection.changesThisMonth >= 2) {
-                return res.status(403).json({
-                    message: 'Ya alcanzó el límite de 2 cambios para este mes.'
-                });
+                return res.status(403).json({ message: 'Ya alcanzó el límite de 2 cambios para este mes.' });
             }
-            // Incrementar contador de cambios del mes actual
             userSelection.changesThisMonth += 1;
         } else {
-            // Nuevo mes, resetear contador
-            userSelection.changesThisMonth = 0;
+            userSelection.changesThisMonth = 1; // Nuevo mes
         }
 
-        // Actualizar selección y fecha de último cambio
-        userSelection.selections = selections;
+        userSelection.temporarySelections = selections;
         userSelection.lastChange = now;
 
         await userSelection.save();
-
-        return res.json({ message: 'Selección actualizada correctamente.' });
+        return res.json({ message: 'Cambio temporal aplicado correctamente.' });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error al guardar las selecciones.' });
+        res.status(500).json({ message: 'Error al guardar la selección.' });
     }
 };
 
@@ -140,7 +127,12 @@ const getAllTurnosPorHorario = async (req, res) => {
         const turnosMap = {};
     
         allSelections.forEach(sel => {
-            sel.selections.forEach(({ day, hour }) => {
+            // Usar temporarySelections si hay cambios esta semana, sino usar originalSelections
+            const selections = (sel.temporarySelections && sel.temporarySelections.length > 0)
+                ? sel.temporarySelections
+                : (sel.originalSelections || sel.selections || []);
+
+            selections.forEach(({ day, hour }) => {
                 const key = `${day}-${hour}`;
                 if (!turnosMap[key]) {
                     turnosMap[key] = [];
