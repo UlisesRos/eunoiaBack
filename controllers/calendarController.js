@@ -65,6 +65,7 @@ const setUserSelections = async (req, res) => {
 
         const countPromises = selections.map(sel =>
             UserSelection.countDocuments({
+                user: { $ne: userId },
                 $or: [
                     { 'originalSelections': { $elemMatch: sel } },
                     { 'temporarySelections': { $elemMatch: sel } }
