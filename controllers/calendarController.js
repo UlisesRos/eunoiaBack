@@ -63,18 +63,35 @@ const setUserSelections = async (req, res) => {
             diasElegidos.add(sel.day);
         }
 
-        const countPromises = selections.map(sel =>
-            UserSelection.countDocuments({
-                user: { $ne: userId },
-                $or: [
-                    { 'originalSelections': { $elemMatch: sel } },
-                    { 'temporarySelections': { $elemMatch: sel } }
-                ]
-            })
-        );
+        // Buscar si ya tiene selección guardada
+        let userSelection = await UserSelection.findOne({ user: userId });
+
+        let countPromises;
+
+        if (!userSelection) {
+            // Primer registro → solo verificar originalSelections
+            countPromises = selections.map(sel =>
+                UserSelection.countDocuments({
+                    user: { $ne: userId },
+                    originalSelections: { $elemMatch: sel }
+                })
+            );
+        } else {
+            // Cambio temporal → verificar en original y temporary
+            countPromises = selections.map(sel =>
+                UserSelection.countDocuments({
+                    user: { $ne: userId },
+                    $or: [
+                        { originalSelections: { $elemMatch: sel } },
+                        { temporarySelections: { $elemMatch: sel } }
+                    ]
+                })
+            );
+        }
 
         const counts = await Promise.all(countPromises);
-        console.log(counts)
+        console.log('Conteo por selección:', counts);
+
         for (let i = 0; i < counts.length; i++) {
             if (counts[i] >= 7) {
                 return res.status(400).json({
@@ -83,11 +100,10 @@ const setUserSelections = async (req, res) => {
             }
         }
 
-        let userSelection = await UserSelection.findOne({ user: userId });
         const now = new Date();
 
         if (!userSelection) {
-            // Primera vez: guardamos como selección original
+            // Primer registro
             userSelection = new UserSelection({
                 user: userId,
                 originalSelections: selections,
@@ -99,7 +115,7 @@ const setUserSelections = async (req, res) => {
             return res.json({ message: 'Selección guardada correctamente.' });
         }
 
-        // Si ya tiene selección original → cambio temporal
+        // Cambio temporal
         if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
             if (userSelection.changesThisMonth >= 2) {
                 return res.status(403).json({ message: 'Ya alcanzó el límite de 2 cambios para este mes.' });
@@ -114,11 +130,13 @@ const setUserSelections = async (req, res) => {
 
         await userSelection.save();
         return res.json({ message: 'Cambio temporal aplicado correctamente.' });
+
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error al guardar la selección.' });
     }
 };
+
 
 
 // Ver todos los turnos por horarios.
