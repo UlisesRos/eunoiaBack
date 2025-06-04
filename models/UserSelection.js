@@ -15,8 +15,8 @@ const userSelectionSchema = new mongoose.Schema({
     temporarySelections: {
         type: [
             {
-            day: { type: String, required: true },
-            hour: { type: String, required: true }
+              day: { type: String, required: true },
+              hour: { type: String, required: true }
             }
         ],
         default: []
@@ -26,3 +26,4 @@ const userSelectionSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('UserSelection', userSelectionSchema);
+

@@ -74,6 +74,7 @@ const setUserSelections = async (req, res) => {
         );
 
         const counts = await Promise.all(countPromises);
+        console.log(counts)
         for (let i = 0; i < counts.length; i++) {
             if (counts[i] >= 7) {
                 return res.status(400).json({
@@ -131,7 +132,9 @@ const getAllTurnosPorHorario = async (req, res) => {
             // Usar temporarySelections si hay cambios esta semana, sino usar originalSelections
             const selections = (sel.temporarySelections && sel.temporarySelections.length > 0)
                 ? sel.temporarySelections
-                : (sel.originalSelections || sel.selections || []);
+                : (sel.originalSelections || []);
+
+
 
             selections.forEach(({ day, hour }) => {
                 const key = `${day}-${hour}`;
@@ -141,6 +144,7 @@ const getAllTurnosPorHorario = async (req, res) => {
                 turnosMap[key].push(`${sel.user.nombre} ${sel.user.apellido}`);
             });
         });
+        
     
         const result = Object.entries(turnosMap).map(([key, users]) => {
             const [day, hour] = key.split('-');
