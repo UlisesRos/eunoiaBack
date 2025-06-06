@@ -35,7 +35,6 @@ const getUserSelections = async (req, res) => {
 };
 
 
-// Asignar o modificar los días/horarios de entrenamiento del usuario
 const setUserSelections = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -69,24 +68,54 @@ const setUserSelections = async (req, res) => {
         let countPromises;
 
         if (!userSelection) {
-            // Primer registro → solo verificar originalSelections
-            countPromises = selections.map(sel =>
-                UserSelection.countDocuments({
-                    user: { $ne: userId },
-                    originalSelections: { $elemMatch: sel }
-                })
-            );
-        } else {
-            // Cambio temporal → verificar en original y temporary
-            countPromises = selections.map(sel =>
-                UserSelection.countDocuments({
+            // Primer registro → verificar tanto original como temporal, filtrando los que ya cambiaron
+            countPromises = selections.map(async sel => {
+                const usuariosOcupando = await UserSelection.find({
                     user: { $ne: userId },
                     $or: [
                         { originalSelections: { $elemMatch: sel } },
                         { temporarySelections: { $elemMatch: sel } }
                     ]
-                })
+                });
+
+                const count = usuariosOcupando.filter(u => {
+                    const tieneTemporal = u.temporarySelections.length > 0;
+
+                    if (!tieneTemporal) return true;
+
+                    // Si ocupa ese turno como temporal, lo cuenta
+                    const loOcupaTemporal = u.temporarySelections.some(
+                        t => t.day === sel.day && t.hour === sel.hour
+                    );
+
+                    return loOcupaTemporal;
+                }).length;
+
+                return count;
+            });
+        } else {
+            // Cambio temporal → verificar en original y temporary, salvo si ya lo tenía
+            const currentTemporaryKeys = new Set(
+                (userSelection.temporarySelections || []).map(sel => `${sel.day}-${sel.hour}`)
             );
+            const currentOriginalKeys = new Set(
+                (userSelection.originalSelections || []).map(sel => `${sel.day}-${sel.hour}`)
+            );
+
+            countPromises = selections.map(sel => {
+                const key = `${sel.day}-${sel.hour}`;
+
+                const yaLoTenia = currentTemporaryKeys.has(key) || currentOriginalKeys.has(key);
+                if (yaLoTenia) return Promise.resolve(0);
+
+                return UserSelection.countDocuments({
+                    user: { $ne: userId },
+                    $or: [
+                        { originalSelections: { $elemMatch: sel } },
+                        { temporarySelections: { $elemMatch: sel } }
+                    ]
+                });
+            });
         }
 
         const counts = await Promise.all(countPromises);
@@ -138,7 +167,6 @@ const setUserSelections = async (req, res) => {
 };
 
 
-
 // Ver todos los turnos por horarios.
 const getAllTurnosPorHorario = async (req, res) => {
     try {
@@ -147,22 +175,25 @@ const getAllTurnosPorHorario = async (req, res) => {
         const turnosMap = {};
     
         allSelections.forEach(sel => {
-            // Usar temporarySelections si hay cambios esta semana, sino usar originalSelections
-            const selections = (sel.temporarySelections && sel.temporarySelections.length > 0)
-                ? sel.temporarySelections
-                : (sel.originalSelections || []);
-
-
+            const useTemporary = sel.temporarySelections?.length > 0;
+            const selections = useTemporary ? sel.temporarySelections : sel.originalSelections;
 
             selections.forEach(({ day, hour }) => {
                 const key = `${day}-${hour}`;
                 if (!turnosMap[key]) {
                     turnosMap[key] = [];
                 }
-                turnosMap[key].push(`${sel.user.nombre} ${sel.user.apellido}`);
+
+                const tipo = useTemporary ? 'temporal' : 'original';
+
+                turnosMap[key].push({
+                    nombre: `${sel.user.nombre} ${sel.user.apellido}`,
+                    tipo
+                });
             });
         });
-        
+
+
     
         const result = Object.entries(turnosMap).map(([key, users]) => {
             const [day, hour] = key.split('-');
@@ -177,8 +208,64 @@ const getAllTurnosPorHorario = async (req, res) => {
     };
 };
 
+
+const adminMoverUsuario = async (req, res) => {
+    try {
+        const { userFullName, current, newTurn, type } = req.body;
+
+        console.log(userFullName)
+
+        if (!userFullName || !current || !newTurn || !type) {
+            return res.status(400).json({ message: 'Faltan datos requeridos.' });
+        }
+
+        const partes = userFullName.trim().split(' ');
+        const apellido = partes.pop(); 
+        const nombre = partes.join(' ');
+
+        const user = await User.findOne({ nombre, apellido });
+
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+        const userSelection = await UserSelection.findOne({ user: user._id });
+        if (!userSelection) return res.status(404).json({ message: 'El usuario no tiene turnos asignados.' });
+
+        const field = type === 'original' ? 'originalSelections' : 'temporarySelections';
+        let currentSelections = userSelection[field] || [];
+
+        // Eliminar turno anterior
+        currentSelections = currentSelections.filter(
+            t => !(t.day === current.day && t.hour === current.hour)
+        );
+
+        // Agregar nuevo turno
+        currentSelections.push({ day: newTurn.day, hour: newTurn.hour });
+
+        userSelection[field] = currentSelections;
+
+        // Si es cambio temporal, actualizar metadata
+        if (type === 'temporal') {
+            const now = new Date();
+            if (sameMonth(now, userSelection.lastChange)) {
+                userSelection.changesThisMonth += 1;
+            } else {
+                userSelection.changesThisMonth = 1;
+            }
+            userSelection.lastChange = now;
+        }
+
+        await userSelection.save();
+
+        return res.json({ message: 'Cambio realizado correctamente.' });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Error al mover el usuario.' });
+    }
+};
+
 module.exports = {
     getUserSelections,
     setUserSelections,
-    getAllTurnosPorHorario
+    getAllTurnosPorHorario,
+    adminMoverUsuario
 };
