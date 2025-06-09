@@ -68,58 +68,34 @@ const setUserSelections = async (req, res) => {
         let countPromises;
 
         if (!userSelection) {
-            // Primer registro → verificar tanto original como temporal, filtrando los que ya cambiaron
+            // Primer registro → verificar SOLO originalSelections (ocupación fija)
             countPromises = selections.map(async sel => {
-                const usuariosOcupando = await UserSelection.find({
+                const count = await UserSelection.countDocuments({
                     user: { $ne: userId },
-                    $or: [
-                        { originalSelections: { $elemMatch: sel } },
-                        { temporarySelections: { $elemMatch: sel } }
-                    ]
+                    originalSelections: { $elemMatch: sel }
                 });
-
-                const count = usuariosOcupando.filter(u => {
-                    const tieneTemporal = u.temporarySelections.length > 0;
-
-                    if (!tieneTemporal) return true;
-
-                    // Si ocupa ese turno como temporal, lo cuenta
-                    const loOcupaTemporal = u.temporarySelections.some(
-                        t => t.day === sel.day && t.hour === sel.hour
-                    );
-
-                    return loOcupaTemporal;
-                }).length;
 
                 return count;
             });
         } else {
-            // Cambio temporal → verificar en original y temporary, salvo si ya lo tenía
-            const currentTemporaryKeys = new Set(
-                (userSelection.temporarySelections || []).map(sel => `${sel.day}-${sel.hour}`)
-            );
-            const currentOriginalKeys = new Set(
-                (userSelection.originalSelections || []).map(sel => `${sel.day}-${sel.hour}`)
-            );
-
-            countPromises = selections.map(sel => {
-                const key = `${sel.day}-${sel.hour}`;
-
-                const yaLoTenia = currentTemporaryKeys.has(key) || currentOriginalKeys.has(key);
-                if (yaLoTenia) return Promise.resolve(0);
-
-                return UserSelection.countDocuments({
-                    user: { $ne: userId },
-                    $or: [
-                        { originalSelections: { $elemMatch: sel } },
-                        { temporarySelections: { $elemMatch: sel } }
-                    ]
+            // Cambio temporal → verificar lo que se está usando efectivamente en la semana
+            countPromises = selections.map(async sel => {
+                const usuariosOcupando = await UserSelection.find({
+                    user: { $ne: userId }
                 });
+
+                const count = usuariosOcupando.filter(u => {
+                    const useTemporary = u.temporarySelections?.length > 0;
+                    const selections = useTemporary ? u.temporarySelections : u.originalSelections;
+
+                    return selections.some(t => t.day === sel.day && t.hour === sel.hour);
+                }).length;
+
+                return count;
             });
         }
 
         const counts = await Promise.all(countPromises);
-        console.log('Conteo por selección:', counts);
 
         for (let i = 0; i < counts.length; i++) {
             if (counts[i] >= 7) {
@@ -173,18 +149,28 @@ const getAllTurnosPorHorario = async (req, res) => {
         const allSelections = await UserSelection.find().populate('user', 'nombre apellido');
     
         const turnosMap = {};
-    
-        allSelections.forEach(sel => {
-            const useTemporary = sel.temporarySelections?.length > 0;
-            const selections = useTemporary ? sel.temporarySelections : sel.originalSelections;
 
-            selections.forEach(({ day, hour }) => {
+        allSelections.forEach(sel => {
+            const { originalSelections = [], temporarySelections = [] } = sel;
+            const usarTemporales = temporarySelections.length > 0;
+            const source = usarTemporales ? temporarySelections : originalSelections;
+
+            source.forEach(({ day, hour }) => {
                 const key = `${day}-${hour}`;
                 if (!turnosMap[key]) {
                     turnosMap[key] = [];
                 }
 
-                const tipo = useTemporary ? 'temporal' : 'original';
+                let tipo = 'original';
+
+                if (usarTemporales) {
+                    const esOriginal = originalSelections.some(
+                        o => o.day === day && o.hour === hour
+                    );
+                    if (!esOriginal) {
+                        tipo = 'temporal';
+                    }
+                }
 
                 turnosMap[key].push({
                     nombre: `${sel.user.nombre} ${sel.user.apellido}`,
@@ -193,75 +179,75 @@ const getAllTurnosPorHorario = async (req, res) => {
             });
         });
 
-
-    
         const result = Object.entries(turnosMap).map(([key, users]) => {
             const [day, hour] = key.split('-');
-            return { day, hour, users};
+            return { day, hour, users };
         });
 
         res.json(result);
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Error al obtener los turnos.'});
-    };
+        res.status(500).json({ message: 'Error al obtener los turnos.' });
+    }
 };
-
 
 const adminMoverUsuario = async (req, res) => {
     try {
         const { userFullName, current, newTurn, type } = req.body;
 
-        console.log(userFullName)
+        // Solo permitimos tipo 'original'
+        if (type !== 'original') {
+            return res.status(400).json({ message: 'Solo se pueden cambiar turnos permanentes (originales).' });
+        }
 
-        if (!userFullName || !current || !newTurn || !type) {
+        if (!userFullName || !current || !newTurn) {
             return res.status(400).json({ message: 'Faltan datos requeridos.' });
         }
 
-        const partes = userFullName.trim().split(' ');
-        const apellido = partes.pop(); 
-        const nombre = partes.join(' ');
+        // Limpiamos espacios extra al dividir nombre y apellido
+        const partes = userFullName.trim().split(' ').filter(Boolean);
+        const apellido = partes.pop().trim();
+        const nombre = partes.join(' ').trim();
 
+        // Buscamos usuario con nombre y apellido limpios
         const user = await User.findOne({ nombre, apellido });
-
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
         const userSelection = await UserSelection.findOne({ user: user._id });
         if (!userSelection) return res.status(404).json({ message: 'El usuario no tiene turnos asignados.' });
 
-        const field = type === 'original' ? 'originalSelections' : 'temporarySelections';
-        let currentSelections = userSelection[field] || [];
+        // Solo trabajamos con originalSelections
+        if (!userSelection.originalSelections) userSelection.originalSelections = [];
 
-        // Eliminar turno anterior
-        currentSelections = currentSelections.filter(
+        // 1. Eliminar el turno actual de originalSelections
+        userSelection.originalSelections = userSelection.originalSelections.filter(
             t => !(t.day === current.day && t.hour === current.hour)
         );
 
-        // Agregar nuevo turno
-        currentSelections.push({ day: newTurn.day, hour: newTurn.hour });
+        // 2. No eliminamos de temporarySelections ni tocamos turnos temporales
 
-        userSelection[field] = currentSelections;
-
-        // Si es cambio temporal, actualizar metadata
-        if (type === 'temporal') {
-            const now = new Date();
-            if (sameMonth(now, userSelection.lastChange)) {
-                userSelection.changesThisMonth += 1;
-            } else {
-                userSelection.changesThisMonth = 1;
-            }
-            userSelection.lastChange = now;
+        // 3. Agregar el nuevo turno si no existe
+        const yaExiste = userSelection.originalSelections.some(
+            t => t.day === newTurn.day && t.hour === newTurn.hour
+        );
+        if (!yaExiste) {
+            userSelection.originalSelections.push({ day: newTurn.day, hour: newTurn.hour });
         }
 
-        await userSelection.save();
+        // 4. No actualizamos metadata para temporales porque ya no aplican cambios temporales
 
+        await userSelection.save();
         return res.json({ message: 'Cambio realizado correctamente.' });
+
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: 'Error al mover el usuario.' });
     }
 };
+
+
+
 
 module.exports = {
     getUserSelections,
