@@ -1,6 +1,7 @@
 // controllers/calendarController.js
 const UserSelection = require('../models/UserSelection');
 const User = require('../models/User'); // Para consultar diasSemanales del usuario
+const Holiday = require('../models/Holiday'); // Para consultar feriados
 
 // Helper para saber si estamos en el mismo mes/año
 function sameMonth(date1, date2) {
@@ -40,63 +41,52 @@ const setUserSelections = async (req, res) => {
         const userId = req.user.id;
         const { selections } = req.body;
 
-        if (!Array.isArray(selections) || selections.length === 0) {
-            return res.status(400).json({ message: 'Debe enviar al menos un día y horario.' });
+        if (!Array.isArray(selections)) {
+            return res.status(400).json({ message: 'Formato inválido.' });
+        }
+
+        if (selections.length === 0) {
+            const userSelection = await UserSelection.findOne({ user: userId });
+
+            if (!userSelection || userSelection.originalSelections.length === 0) {
+                return res.status(400).json({ message: 'Debe tener al menos un horario asignado.' });
+            }
+
+            // Borramos los temporales para volver a originales
+            userSelection.temporarySelections = [];
+            userSelection.lastChange = null;
+            await userSelection.save();
+
+            return res.json({ message: 'Cambios temporales eliminados. Volviste a tus horarios originales.' });
         }
 
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
         const maxDias = user.diasSemanales;
-        if (selections.length !== maxDias) {
-            return res.status(400).json({ message: `Debe seleccionar exactamente ${maxDias} días.` });
-        }
-
-        const diasElegidos = new Set();
-        for (const sel of selections) {
-            if (diasElegidos.has(sel.day)) {
-                return res.status(400).json({
-                    message: `No puede seleccionar más de un horario el mismo día (${sel.day}).`
-                });
-            }
-            diasElegidos.add(sel.day);
-        }
 
         // Buscar si ya tiene selección guardada
         let userSelection = await UserSelection.findOne({ user: userId });
 
-        let countPromises;
-
-        if (!userSelection) {
-            // Primer registro → verificar SOLO originalSelections (ocupación fija)
-            countPromises = selections.map(async sel => {
-                const count = await UserSelection.countDocuments({
-                    user: { $ne: userId },
-                    originalSelections: { $elemMatch: sel }
-                });
-
-                return count;
-            });
-        } else {
-            // Cambio temporal → verificar lo que se está usando efectivamente en la semana
-            countPromises = selections.map(async sel => {
-                const usuariosOcupando = await UserSelection.find({
-                    user: { $ne: userId }
-                });
-
-                const count = usuariosOcupando.filter(u => {
-                    const useTemporary = u.temporarySelections?.length > 0;
-                    const selections = useTemporary ? u.temporarySelections : u.originalSelections;
-
-                    return selections.some(t => t.day === sel.day && t.hour === sel.hour);
-                }).length;
-
-                return count;
-            });
+        // Validar cantidad solo si es el primer registro (original)
+        if (!userSelection && selections.length !== maxDias) {
+            return res.status(400).json({ message: `Debe seleccionar exactamente ${maxDias} días.` });
         }
 
-        const counts = await Promise.all(countPromises);
+        // Verificar ocupación de los turnos nuevos
+        const countPromises = selections.map(async sel => {
+            const usuariosOcupando = await UserSelection.find({ user: { $ne: userId } });
 
+            const count = usuariosOcupando.filter(u => {
+                const useTemporary = u.temporarySelections?.length > 0;
+                const userTurns = useTemporary ? u.temporarySelections : u.originalSelections;
+                return userTurns.some(t => t.day === sel.day && t.hour === sel.hour);
+            }).length;
+
+            return count;
+        });
+
+        const counts = await Promise.all(countPromises);
         for (let i = 0; i < counts.length; i++) {
             if (counts[i] >= 7) {
                 return res.status(400).json({
@@ -120,16 +110,36 @@ const setUserSelections = async (req, res) => {
             return res.json({ message: 'Selección guardada correctamente.' });
         }
 
-        // Cambio temporal
-        if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
-            if (userSelection.changesThisMonth >= 2) {
-                return res.status(403).json({ message: 'Ya alcanzó el límite de 2 cambios para este mes.' });
-            }
-            userSelection.changesThisMonth += 1;
-        } else {
-            userSelection.changesThisMonth = 1; // Nuevo mes
+        if(user.pago === false) {
+            return res.status(403).json({ message: 'Debes realizar tu pago correspondiente para cambiar el turno.' });
         }
 
+        // 🔍 Detectar si es un simple borrado de un turno temporal o permanente
+        const origen = userSelection.temporarySelections.length > 0
+            ? userSelection.temporarySelections
+            : userSelection.originalSelections;
+
+        const diferencia = origen.length - selections.length;
+
+        const soloBorradoTemporal =
+            diferencia === 1 &&
+            origen.some(
+                t => !selections.some(s => s.day === t.day && s.hour === t.hour)
+            );
+
+        // 🧠 Solo contar como cambio mensual si no es un simple borrado
+        if (!soloBorradoTemporal) {
+            if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
+                if (userSelection.changesThisMonth >= 2) {
+                    return res.status(403).json({ message: 'Ya alcanzó el límite de 2 cambios para este mes.' });
+                }
+                userSelection.changesThisMonth += 1;
+            } else {
+                userSelection.changesThisMonth = 1; // Nuevo mes
+            }
+        }
+
+        // Guardar el cambio temporal
         userSelection.temporarySelections = selections;
         userSelection.lastChange = now;
 
@@ -246,12 +256,40 @@ const adminMoverUsuario = async (req, res) => {
     }
 };
 
+const marcarFeriado = async (req, res) => {
+    const { date } = req.body;
+    if (!date) return res.status(400).json({ message: 'Falta la fecha del feriado.'});
 
+    try {
+        await Holiday.findOneAndUpdate(
+            {date},
+            {date},
+            { upsert: true, new: true }
+        );
+        res.json({ message: 'Feriado marcado correctamente.' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al guardar el feriado.' });
+    }
+
+}
+
+const getFeriados = async (req, res) => {
+    try {
+        const feriados = await Holiday.find();
+        res.json(feriados);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener los feriados.' });
+    }
+}
 
 
 module.exports = {
     getUserSelections,
     setUserSelections,
     getAllTurnosPorHorario,
-    adminMoverUsuario
+    adminMoverUsuario,
+    marcarFeriado,
+    getFeriados
 };
