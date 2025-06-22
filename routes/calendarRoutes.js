@@ -11,6 +11,6 @@ router.post('/reset-temporales', auth, resetUserSelections)
 router.post('/cancelar-temporalmente', auth, eliminarTurnoPorEstaSemana);
 router.post('/feriado', auth, marcarFeriado);
 router.get('/feriados', auth, getFeriados);
-router.delete('/feriado', auth, quitarFeriado);
+router.delete('/eliminar-feriado', auth, quitarFeriado);
 
 module.exports = router;
