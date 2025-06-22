@@ -50,6 +50,19 @@ const resetCambiosSemanales = () => {
     }, {
         timezone: 'America/Argentina/Buenos_Aires'
     });
+
+    cron.schedule('0 7 * * 6', async () => {
+        try {
+            const hoy = new Date();
+            const hoyISO = hoy.toISOString().slice(0, 10);
+            await TurnoCancelado.deleteMany({ fecha: { $lte: hoyISO } });
+            console.log('Turnos cancelados borrados');
+        } catch (err) {
+            console.error('Error al limpiar cancelaciones:', err);
+        }
+    }, {
+        timezone: 'America/Argentina/Buenos_Aires'
+    });
 };
 
 module.exports = { resetCambioMensual, resetCambiosSemanales };
