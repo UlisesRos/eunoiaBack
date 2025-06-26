@@ -5,6 +5,7 @@ const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
 const calendarRoutes = require('./routes/calendarRoutes');
 const usuariosRoutes = require('./routes/usuariosRoutes');
+const infoRoutes = require('./routes/infoRoutes');
 const authMiddleware = require('./middleware/authMiddleware');
 const adminMiddleware = require('./middleware/adminMiddleware');
 const { resetCambioMensual, resetCambiosSemanales } = require('./cronJobs/resetCambioMensual');
@@ -29,6 +30,7 @@ resetCambiosSemanales(); // Inicia el cron job para reiniciar cambios semanales
 app.use('/api/auth', authRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/usuarios', usuariosRoutes);
+app.use('/api/info', infoRoutes);
 
 app.get('/', (req, res) => {
     res.send('Servidor funcionando correctamente.')

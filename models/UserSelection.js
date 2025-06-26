@@ -22,7 +22,7 @@ const userSelectionSchema = new mongoose.Schema({
         default: []
 },
     changesThisMonth: { type: Number, default: 0 },
-    lastChange: { type: Date, default: null }
+    lastChange: { type: Date, default: null },
 });
 
 module.exports = mongoose.model('UserSelection', userSelectionSchema);

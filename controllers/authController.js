@@ -8,9 +8,9 @@ const crypto = require('crypto');
 // REGISTER
 const register = async (req, res) => {
     try {
-        const nombre = req.body.nombre.toLowerCase();
-        const apellido = req.body.apellido.toLowerCase();
-        const email = req.body.email.toLowerCase();
+        const nombre = req.body.nombre.toLowerCase().trim();
+        const apellido = req.body.apellido.toLowerCase().trim();
+        const email = req.body.email.toLowerCase().trim();
 
         const { celular, diasSemanales, password, confirmarPassword } = req.body;
 
