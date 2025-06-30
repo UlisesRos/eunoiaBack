@@ -9,6 +9,7 @@ const infoRoutes = require('./routes/infoRoutes');
 const authMiddleware = require('./middleware/authMiddleware');
 const adminMiddleware = require('./middleware/adminMiddleware');
 const { resetCambioMensual, resetCambiosSemanales } = require('./cronJobs/resetCambioMensual');
+const limpiarTurnosRecuperados = require('./cronJobs/limpiarTurnosRecuperados');
 const recordatorioPago = require('./utils/recordatorioPago');
 
 dotenv.config();
@@ -25,6 +26,7 @@ connectDB(); // Conecta a MongoDB
 recordatorioPago(); // Inicia el cron job para enviar recordatorios de pago
 resetCambioMensual(); // Inicia el cron job para reiniciar cambios mensuales
 resetCambiosSemanales(); // Inicia el cron job para reiniciar cambios semanales
+limpiarTurnosRecuperados(); // Inicia el cron job para limpiar turnos recuperados viejos
 
 // Rutas
 app.use('/api/auth', authRoutes);

@@ -11,7 +11,7 @@ const sendEmail = async (to, subject, text) => {
         });
 
         await transporter.sendMail({
-            from: `"Estudio de Pilates - Eunoia" <${process.env.EMAIL_USER}>`,
+            from: `"Eunoia Estudio de Pilates - Pilates Reformer" <${process.env.EMAIL_USER}>`,
             to,
             subject,
             text

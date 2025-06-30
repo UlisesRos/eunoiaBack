@@ -13,7 +13,9 @@ const {
         guardarTurnoParaRecuperar, 
         listarTurnosRecuperables, 
         usarTurnoRecuperado, 
-        adminCancelarTurnoTemporalmente
+        adminCancelarTurnoTemporalmente,
+        listarTurnosRecuperadosUsados,
+        limpiarTurnosRecuperadosViejos
     } = require('../controllers/calendarController');
 const auth = require('../middleware/authMiddleware');
 
@@ -30,5 +32,7 @@ router.post('/quitar-feriado', auth, quitarFeriado);
 router.post('/guardar-para-recuperar', auth, guardarTurnoParaRecuperar);
 router.get('/turnos-recuperables', auth, listarTurnosRecuperables);
 router.post('/usar-turno-recuperado', auth, usarTurnoRecuperado);
+router.get('/turnos-recuperados-usados', auth, listarTurnosRecuperadosUsados);
+router.post('/limpiar-turnos-recuperados-viejos', auth, limpiarTurnosRecuperadosViejos); 
 
 module.exports = router;

@@ -33,6 +33,7 @@ const resetCambioMensual = async () => {
 
 
 const resetCambiosSemanales = () => {
+    // ✅ Reiniciar cambios semanales
     // Cada sábado a las 15:00
     cron.schedule('0 7 * * 6', async ()=> {
     console.log('[CRON] Reiniciando cambios semanales (temporalSelections)');

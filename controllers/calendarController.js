@@ -36,6 +36,7 @@ const getUserSelections = async (req, res) => {
     }
 };
 
+
 // Guardar las selecciones del usuario
 const setUserSelections = async (req, res) => {
     try {
@@ -411,10 +412,11 @@ const guardarTurnoParaRecuperar = async (req, res) => {
         userSelection.lastChange.getFullYear() === hoy.getFullYear();
 
         if (sameMonth) {
-            if (userSelection.changesThisMonth >= 2) {
-                return res.status(403).json({ message: 'Ya alcanzaste el límite de 2 cambios este mes.' });
-            }
-                userSelection.changesThisMonth += 1;
+                if (userSelection.changesThisMonth >= 2) {
+                    return res.status(403).json({ message: 'Ya alcanzaste el límite de 2 cambios este mes.' });
+                } else {
+                    userSelection.changesThisMonth += 1;
+                }
             } else {
                 userSelection.changesThisMonth = 1;
             }
@@ -464,9 +466,9 @@ const listarTurnosRecuperables = async (req, res) => {
     }
 };
 
-
-// Usar un turno recuperable
+// Usar turno recuperado
 const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
 const usarTurnoRecuperado = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -482,32 +484,84 @@ const usarTurnoRecuperado = async (req, res) => {
         }
 
         const diaCapitalizado = capitalize(day);
-        const hora = hour;
 
-        const userSelection = await UserSelection.findOne({ user: userId });
-        if (!userSelection) {
-            return res.status(404).json({ message: 'No hay selección registrada.' });
-        }
+        // Calcular fecha exacta de la semana en la que se está recuperando el turno
+        const today = new Date();
+        const dayIndex = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'].indexOf(diaCapitalizado);
+        const monday = new Date(today);
+        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); // lunes de la semana actual
+        const recoveryDate = new Date(monday);
+        recoveryDate.setDate(monday.getDate() + dayIndex);
 
-        const yaExiste = userSelection.temporarySelections.some(
-            t => t.day === diaCapitalizado && t.hour === hora
-        );
-        if (!yaExiste) {
-            userSelection.temporarySelections.push({ day: diaCapitalizado, hour });
-        }
-
+        // Actualizar solo el modelo RecoverableTurn
         turno.recovered = true;
-        turno.recoveryDate = new Date();
+        turno.recoveryDate = recoveryDate;
+        turno.assignedDay = diaCapitalizado;
+        turno.assignedHour = hour;
 
-        await userSelection.save();
         await turno.save();
 
         res.json({ message: 'Turno recuperado exitosamente.' });
+
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Error al recuperar el turno.' });
     }
 };
+
+const listarTurnosRecuperadosUsados = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { startDate, endDate } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'Faltan fechas de inicio o fin.' });
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999); // incluir todo el último día
+
+        const turnos = await RecoverableTurn.find({
+            user: userId,
+            recovered: true,
+            recoveryDate: { $gte: start, $lte: end }
+        });
+
+        const resultados = turnos.map(t => ({
+            day: t.assignedDay,
+            hour: t.assignedHour,
+            nombre: `${req.user.nombre} ${req.user.apellido}`,
+            tipo: 'recuperado'
+        }));
+
+        res.json(resultados);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al listar turnos recuperados usados.' });
+    }
+};
+
+const limpiarTurnosRecuperadosViejos = async (req, res) => {
+    try {
+        const hoy = new Date();
+        const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1); // ej: 2025-06-01
+
+        const resultado = await RecoverableTurn.deleteMany({
+            recovered: true,
+            recoveryDate: { $lt: primerDiaMes }
+        });
+
+        res.json({
+            message: `Se eliminaron ${resultado.deletedCount} turnos recuperados anteriores a ${primerDiaMes.toISOString().slice(0, 10)}.`
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al limpiar turnos viejos.' });
+    }
+};
+
 
 module.exports = {
     getUserSelections,
@@ -522,5 +576,7 @@ module.exports = {
     guardarTurnoParaRecuperar,
     listarTurnosRecuperables,
     usarTurnoRecuperado,
-    adminCancelarTurnoTemporalmente
+    adminCancelarTurnoTemporalmente,
+    listarTurnosRecuperadosUsados,
+    limpiarTurnosRecuperadosViejos
 };
