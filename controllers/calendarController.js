@@ -28,6 +28,7 @@ const getUserSelections = async (req, res) => {
 
         return res.json({
             selections: selectionsToShow,
+            originalSelections: userSelection.originalSelections || [],
             changesThisMonth: userSelection.changesThisMonth || 0
         });
     } catch (error) {
@@ -122,6 +123,46 @@ const setUserSelections = async (req, res) => {
         res.status(500).json({ message: 'Error al guardar la selección.' });
     }
 };
+
+const setOriginalSelections = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { selections } = req.body;
+
+        if (!Array.isArray(selections)) {
+            return res.status(400).json({ message: 'Formato inválido.' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+        const maxDias = user.diasSemanales;
+        if (selections.length !== maxDias) {
+            return res.status(400).json({ message: `Debés seleccionar exactamente ${maxDias} días.` });
+        }
+
+        const userSelection = await UserSelection.findOne({ user: userId });
+        if (!userSelection) {
+            // Si no existía, lo creamos
+            const nuevo = new UserSelection({
+                user: userId,
+                originalSelections: selections,
+                temporarySelections: [],
+                changesThisMonth: 0
+            });
+            await nuevo.save();
+            return res.json({ message: 'Turnos originales guardados correctamente.' });
+        }
+
+        userSelection.originalSelections = selections;
+        await userSelection.save();
+        return res.json({ message: 'Turnos originales actualizados correctamente.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error al guardar los turnos originales.' });
+    }
+};
+
 
 // Eliminar un turno por esta semana
 const eliminarTurnoPorEstaSemana = async (req, res) => {
@@ -578,5 +619,6 @@ module.exports = {
     usarTurnoRecuperado,
     adminCancelarTurnoTemporalmente,
     listarTurnosRecuperadosUsados,
-    limpiarTurnosRecuperadosViejos
+    limpiarTurnosRecuperadosViejos,
+    setOriginalSelections
 };

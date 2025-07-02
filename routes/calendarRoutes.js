@@ -15,7 +15,8 @@ const {
         usarTurnoRecuperado, 
         adminCancelarTurnoTemporalmente,
         listarTurnosRecuperadosUsados,
-        limpiarTurnosRecuperadosViejos
+        limpiarTurnosRecuperadosViejos,
+        setOriginalSelections
     } = require('../controllers/calendarController');
 const auth = require('../middleware/authMiddleware');
 
@@ -34,5 +35,6 @@ router.get('/turnos-recuperables', auth, listarTurnosRecuperables);
 router.post('/usar-turno-recuperado', auth, usarTurnoRecuperado);
 router.get('/turnos-recuperados-usados', auth, listarTurnosRecuperadosUsados);
 router.post('/limpiar-turnos-recuperados-viejos', auth, limpiarTurnosRecuperadosViejos); 
+router.post('/set-original-selections', auth, setOriginalSelections)
 
 module.exports = router;
