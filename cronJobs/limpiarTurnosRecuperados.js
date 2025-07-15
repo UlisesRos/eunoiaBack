@@ -2,15 +2,15 @@ const cron = require('node-cron');
 const RecoverableTurn = require('../models/RecoverableTurn');
 
 function limpiarTurnosRecuperados() {
-    const hoy = new Date();
-    const primerDiaDelMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const haceUnMes = new Date();
+    haceUnMes.setMonth(haceUnMes.getMonth() - 1);
 
     RecoverableTurn.deleteMany({
         recovered: true,
-        recoveryDate: { $lt: primerDiaDelMes }
+        recoveryDate: { $lt: haceUnMes }
     })
     .then(result => {
-        console.log(`[Cron] 🧹 Turnos recuperados antiguos eliminados: ${result.deletedCount}`);
+        console.log(`[Cron] 🧹 Turnos recuperados anteriores a ${haceUnMes.toISOString().slice(0, 10)} eliminados: ${result.deletedCount}`);
     })
     .catch(err => {
         console.error('[Cron] ❌ Error al eliminar turnos viejos:', err);
@@ -23,3 +23,4 @@ cron.schedule('0 2 * * *', () => {
 });
 
 module.exports = limpiarTurnosRecuperados;
+

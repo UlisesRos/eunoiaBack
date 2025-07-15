@@ -584,6 +584,39 @@ const listarTurnosRecuperadosUsados = async (req, res) => {
     }
 };
 
+const listarTodosLosTurnosRecuperadosUsados = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        if (!startDate || !endDate) {
+            return res.status(400).json({ message: 'Faltan fechas de inicio o fin.' });
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+
+        const turnos = await RecoverableTurn.find({
+            recovered: true,
+            recoveryDate: { $gte: start, $lte: end }
+        }).populate('user', 'nombre apellido');
+
+        const resultados = turnos
+            .filter(t => t.user) // Evita error si el usuario fue eliminado
+            .map(t => ({
+                day: t.assignedDay,
+                hour: t.assignedHour,
+                nombre: `${t.user.nombre} ${t.user.apellido}`,
+                tipo: 'recuperado'
+            }));
+
+        res.json(resultados);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error al listar todos los turnos recuperados.' });
+    }
+};
+
+
 const limpiarTurnosRecuperadosViejos = async (req, res) => {
     try {
         const hoy = new Date();
@@ -620,5 +653,6 @@ module.exports = {
     adminCancelarTurnoTemporalmente,
     listarTurnosRecuperadosUsados,
     limpiarTurnosRecuperadosViejos,
-    setOriginalSelections
+    setOriginalSelections,
+    listarTodosLosTurnosRecuperadosUsados
 };
