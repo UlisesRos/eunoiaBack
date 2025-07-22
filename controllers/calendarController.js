@@ -526,11 +526,24 @@ const usarTurnoRecuperado = async (req, res) => {
 
         const diaCapitalizado = capitalize(day);
 
-        // Calcular fecha exacta de la semana en la que se está recuperando el turno
+        // Calcular fecha exacta del día elegido, basándonos en si hoy es sábado o domingo
         const today = new Date();
+        const dayOfWeek = today.getDay(); // 0 = domingo, 6 = sábado
         const dayIndex = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'].indexOf(diaCapitalizado);
+
         const monday = new Date(today);
-        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); // lunes de la semana actual
+
+        if (dayOfWeek === 6) {
+            // sábado → saltamos al lunes siguiente
+            monday.setDate(today.getDate() + 2);
+        } else if (dayOfWeek === 0) {
+            // domingo → saltamos al lunes siguiente
+            monday.setDate(today.getDate() + 1);
+        } else {
+            // lunes a viernes → vamos al lunes actual
+            monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
+        }
+
         const recoveryDate = new Date(monday);
         recoveryDate.setDate(monday.getDate() + dayIndex);
 
@@ -549,6 +562,7 @@ const usarTurnoRecuperado = async (req, res) => {
         res.status(500).json({ message: 'Error al recuperar el turno.' });
     }
 };
+
 
 const listarTurnosRecuperadosUsados = async (req, res) => {
     try {
