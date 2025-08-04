@@ -17,7 +17,8 @@ const {
         listarTurnosRecuperadosUsados,
         limpiarTurnosRecuperadosViejos,
         setOriginalSelections,
-        listarTodosLosTurnosRecuperadosUsados
+        listarTodosLosTurnosRecuperadosUsados,
+        adminResetToOriginals
     } = require('../controllers/calendarController');
 const auth = require('../middleware/authMiddleware');
 
@@ -25,6 +26,7 @@ router.get('/mis-turnos', auth, getUserSelections);
 router.post('/asignar-turnos', auth, setUserSelections);
 router.get('/turnos', auth, getAllTurnosPorHorario);
 router.put('/admin-mover-usuario', auth ,adminMoverUsuario);
+router.post('/admin-reset-a-originales', auth, adminResetToOriginals);
 router.post('/admin-cancelar-temporalmente', auth, adminCancelarTurnoTemporalmente);
 router.post('/reset-temporales', auth, resetUserSelections)
 router.post('/cancelar-temporalmente', auth, eliminarTurnoPorEstaSemana);

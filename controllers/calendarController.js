@@ -327,6 +327,48 @@ const adminMoverUsuario = async (req, res) => {
     }
 };
 
+// Admin: Restaurar turnos originales y devolver cambio mensual
+const adminResetToOriginals = async (req, res) => {
+    try {
+        const { userFullName } = req.body;
+        if (!userFullName) return res.status(400).json({ message: 'Falta el nombre del usuario.' });
+
+        const partes = userFullName.trim().split(' ').filter(Boolean);
+        const apellido = partes.pop();
+        const nombre = partes.join(' ');
+
+        const todos = await User.find({});
+        const user = todos.find(u =>
+            u.nombre.trim().toLowerCase() === nombre.toLowerCase() &&
+            u.apellido.trim().toLowerCase() === apellido.toLowerCase()
+        );
+
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+        const userSelection = await UserSelection.findOne({ user: user._id });
+        if (!userSelection) return res.status(400).json({ message: 'No hay selección de turnos registrada.' });
+
+        if (userSelection.temporarySelections.length === 0) {
+            return res.status(400).json({ message: 'El usuario ya está usando sus turnos originales.' });
+        }
+
+        userSelection.temporarySelections = [];
+        userSelection.lastChange = null;
+
+        // Restar un cambio mensual si tiene al menos uno registrado
+        if (userSelection.changesThisMonth && userSelection.changesThisMonth > 0) {
+            userSelection.changesThisMonth -= 1;
+        }
+
+        await userSelection.save();
+
+        return res.json({ message: 'Turnos temporales eliminados. Se restauraron los originales y se devolvió el cambio mensual.' });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Error al restaurar los turnos del usuario.' });
+    }
+};
+
 // Admin: Cancelar un turno temporalmente
 const adminCancelarTurnoTemporalmente = async (req, res) => {
     try {
@@ -668,5 +710,6 @@ module.exports = {
     listarTurnosRecuperadosUsados,
     limpiarTurnosRecuperadosViejos,
     setOriginalSelections,
-    listarTodosLosTurnosRecuperadosUsados
+    listarTodosLosTurnosRecuperadosUsados,
+    adminResetToOriginals
 };
