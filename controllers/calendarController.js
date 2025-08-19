@@ -626,6 +626,7 @@ const listarTurnosRecuperadosUsados = async (req, res) => {
         });
 
         const resultados = turnos.map(t => ({
+            _id: t._id,
             day: t.assignedDay,
             hour: t.assignedHour,
             nombre: `${req.user.nombre} ${req.user.apellido}`,
@@ -692,6 +693,91 @@ const limpiarTurnosRecuperadosViejos = async (req, res) => {
     }
 };
 
+//ADMIN: Eliminar un turno recuperado y devolverlo al usuario
+const adminEliminarTurnoRecuperado = async (req, res) => {
+    try {
+        const { userFullName, day, hour } = req.body;
+
+        if (!userFullName || !day || !hour) {
+            return res.status(400).json({ message: 'Faltan datos requeridos.' });
+        };
+
+        // Separar nombre y apellido
+        const partes = userFullName.trim().split(' ').filter(Boolean);
+        const apellido = partes.pop().trim();
+        const nombre = partes.join(' ').trim();
+
+        const todos = await User.find({});
+        const user = todos.find(u =>
+            u.nombre.trim().toLowerCase() === nombre.toLowerCase() &&
+            u.apellido.trim().toLowerCase() === apellido.toLowerCase()
+        );
+
+        if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
+
+        // Buscar el turno recuperado que coincida
+        const turno = await RecoverableTurn.findOne({
+            user: user._id,
+            assignedDay: day,
+            assignedHour: hour,
+            recovered: true
+        });
+
+        if (!turno) {
+            return res.status(404).json({ message: 'Turno recuperado no encontrado.' });
+        }
+
+        // Revertimos el turno disponible
+        turno.recovered = false;
+        turno.recoveryDate = null;
+        turno.assignedDay = null;
+        turno.assignedHour = null;
+
+        await turno.save();
+
+        return res.json({
+            message: `El turno recuperado de ${turno.user.nombre} ${turno.user.apellido} fue eliminado. Ahora puede volver a usarlo.`
+        });
+
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Error al eliminar el turno recuperado.' });
+    }
+};
+
+// Usuario: eliminar su propio turno recuperado
+const usuarioEliminarTurnoRecuperado = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { day, hour } = req.body;
+
+        if (!day || !hour) {
+            return res.status(400).json({ message: 'Faltan datos.' });
+        }
+
+        const turno = await RecoverableTurn.findOne({
+            user: userId,
+            assignedDay: day,
+            assignedHour: hour,
+            recovered: true
+        });
+
+        if (!turno) {
+            return res.status(404).json({ message: 'Turno recuperado no encontrado.' });
+        }
+
+        turno.recovered = false;
+        turno.recoveryDate = null;
+        turno.assignedDay = null;
+        turno.assignedHour = null;
+        await turno.save();
+
+        return res.json({ message: 'Turno recuperado eliminado. Ahora podrás volver a usarlo.' });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Error al eliminar el turno recuperado.' });
+    }
+};
 
 module.exports = {
     getUserSelections,
@@ -711,5 +797,7 @@ module.exports = {
     limpiarTurnosRecuperadosViejos,
     setOriginalSelections,
     listarTodosLosTurnosRecuperadosUsados,
-    adminResetToOriginals
+    adminResetToOriginals,
+    adminEliminarTurnoRecuperado,
+    usuarioEliminarTurnoRecuperado
 };
