@@ -1,4 +1,41 @@
-const cron = require('node-cron');
+const express = require("express");
+const router = express.Router();
+const UserSelection = require("../models/UserSelection");
+const User = require("../models/User");
+
+// 🔄 Reinicio mensual (día 1 de cada mes)
+router.get("/reset-mensual", async (req, res) => {
+    try {
+        await UserSelection.updateMany({}, {
+            $set: { changesThisMonth: 0, lastChange: null }
+        });
+        await User.updateMany({}, { $set: { pago: false } });
+
+        res.json({ ok: true, msg: "Reinicio mensual completado" });
+    } catch (err) {
+        console.error("Error en reset mensual:", err);
+        res.status(500).json({ ok: false, msg: "Error en reset mensual" });
+    }
+});
+
+// 🔄 Reinicio semanal (sábado)
+router.get("/reset-semanal", async (req, res) => {
+    try {
+        await UserSelection.updateMany({}, {
+            $unset: { temporarySelections: "" } // o $set: { temporarySelections: [] }
+        });
+
+        res.json({ ok: true, msg: "Reinicio semanal completado" });
+    } catch (err) {
+        console.error("Error en reset semanal:", err);
+        res.status(500).json({ ok: false, msg: "Error en reset semanal" });
+    }
+});
+
+module.exports = router;
+
+
+/*const cron = require('node-cron');
 const UserSelection = require('../models/UserSelection');
 const User = require('../models/User'); // Asegurate de importar el modelo correcto
 
@@ -54,6 +91,6 @@ const resetCambiosSemanales = () => {
     
 };
 
-module.exports = { resetCambioMensual, resetCambiosSemanales };
+module.exports = { resetCambioMensual, resetCambiosSemanales };*/
 
 
