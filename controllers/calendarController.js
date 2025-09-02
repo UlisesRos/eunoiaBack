@@ -4,39 +4,6 @@ const User = require('../models/User'); // Para consultar diasSemanales del usua
 const Holiday = require('../models/Holiday'); // Para consultar feriados
 const RecoverableTurn = require('../models/RecoverableTurn'); // Para manejar turnos recuperables
 
-// --- Helper de ocupación (capacidad por day/hour) ---
-async function contarOcupados(day, hour, { excludeUserId = null } = {}) {
-    const all = await UserSelection
-        .find()
-        .select('user originalSelections temporarySelections')
-        .lean();
-
-    let count = 0;
-    for (const u of all) {
-        if (excludeUserId && String(u.user) === String(excludeUserId)) continue;
-
-        const source = (u.temporarySelections && u.temporarySelections.length > 0)
-            ? u.temporarySelections
-            : (u.originalSelections || []);
-
-        if (!Array.isArray(source) || source.length === 0) continue;
-
-        // Ignorar placeholders usados por cancelaciones semanales
-        const ocupa = source.some(t =>
-            t &&
-            t.day &&
-            t.day !== '__placeholder__' &&
-            t.hour &&
-            t.day === day &&
-            t.hour === hour
-        );
-
-        if (ocupa) count++;
-    }
-    return count;
-}
-
-
 // Helper para saber si estamos en el mismo mes/año
 function sameMonth(date1, date2) {
     return (
@@ -100,14 +67,6 @@ const setUserSelections = async (req, res) => {
         if (!userSelection) {
             if (selections.length !== maxDias) {
                 return res.status(400).json({ message: `Debés seleccionar exactamente ${maxDias} días.` });
-            }
-
-            // ✅ Validar cupos antes de crear originales
-            for (const sel of selections) {
-                const ocupados = await contarOcupados(sel.day, sel.hour, { excludeUserId: userId });
-                if (ocupados >= 7) {
-                    return res.status(400).json({ message: `El turno ${sel.day} ${sel.hour} ya está completo.` });
-                }
             }
 
             userSelection = new UserSelection({
@@ -195,18 +154,9 @@ const setOriginalSelections = async (req, res) => {
             return res.json({ message: 'Turnos originales guardados correctamente.' });
         }
 
-        // ✅ Validar cupos antes de pisar los originales
-        for (const sel of selections) {
-            const ocupados = await contarOcupados(sel.day, sel.hour, { excludeUserId: userId });
-            if (ocupados >= 7) {
-                return res.status(400).json({ message: `El turno ${sel.day} ${sel.hour} ya está completo.` });
-            }
-        }
-
         userSelection.originalSelections = selections;
         await userSelection.save();
         return res.json({ message: 'Turnos originales actualizados correctamente.' });
-
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Error al guardar los turnos originales.' });
@@ -365,11 +315,6 @@ const adminMoverUsuario = async (req, res) => {
             t => t.day === newTurn.day && t.hour === newTurn.hour
         );
         if (!yaExiste) {
-            // ✅ Chequear cupo para el nuevo turno
-            const ocupados = await contarOcupados(newTurn.day, newTurn.hour, { excludeUserId: user._id });
-            if (ocupados >= 7) {
-                return res.status(400).json({ message: `El turno ${newTurn.day} ${newTurn.hour} ya está completo.` });
-            }
             userSelection.originalSelections.push({ day: newTurn.day, hour: newTurn.hour });
         }
 
