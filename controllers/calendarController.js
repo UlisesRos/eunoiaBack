@@ -4,6 +4,9 @@ const User = require('../models/User'); // Para consultar diasSemanales del usua
 const Holiday = require('../models/Holiday'); // Para consultar feriados
 const RecoverableTurn = require('../models/RecoverableTurn'); // Para manejar turnos recuperables
 
+// Función para normalizar un string (quita espacios extras y pasa a minúsculas)
+const normalizar = (str) => str.trim().replace(/\s+/g, ' ').toLowerCase();
+
 // Helper para saber si estamos en el mismo mes/año
 function sameMonth(date1, date2) {
     return (
@@ -274,6 +277,7 @@ const getAllTurnosPorHorario = async (req, res) => {
 };
 
 // Admin: Mover un usuario a un nuevo turno original
+
 const adminMoverUsuario = async (req, res) => {
     try {
         const { userFullName, current, newTurn, type } = req.body;
@@ -286,19 +290,19 @@ const adminMoverUsuario = async (req, res) => {
             return res.status(400).json({ message: 'Faltan datos requeridos.' });
         }
 
-        // Limpiamos nombre completo y separamos nombre y apellido
-        const partes = userFullName.trim().split(' ').filter(Boolean);
-        const apellido = partes.pop().trim();
-        const nombre = partes.join(' ').trim();
+        // Normalizamos el nombre recibido
+        const nombreBuscado = normalizar(userFullName);
 
-        // Buscamos todos los usuarios y comparamos con trim + lowercase para mayor tolerancia
+        // Traemos todos los usuarios y comparamos contra su nombre completo
         const todos = await User.find({});
-        const user = todos.find(u =>
-            u.nombre.trim().toLowerCase() === nombre.toLowerCase() &&
-            u.apellido.trim().toLowerCase() === apellido.toLowerCase()
-        );
+        const user = todos.find(u => {
+            const nombreCompleto = normalizar(`${u.nombre} ${u.apellido}`);
+            return nombreCompleto === nombreBuscado;
+        });
 
-        if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
+        if (!user) {
+            return res.status(404).json({ message: 'Usuario no encontrado.' });
+        }
 
         const userSelection = await UserSelection.findOne({ user: user._id });
         if (!userSelection) return res.status(404).json({ message: 'El usuario no tiene turnos asignados.' });
@@ -327,21 +331,22 @@ const adminMoverUsuario = async (req, res) => {
     }
 };
 
+
 // Admin: Restaurar turnos originales y devolver cambio mensual
 const adminResetToOriginals = async (req, res) => {
     try {
         const { userFullName } = req.body;
         if (!userFullName) return res.status(400).json({ message: 'Falta el nombre del usuario.' });
 
-        const partes = userFullName.trim().split(' ').filter(Boolean);
-        const apellido = partes.pop();
-        const nombre = partes.join(' ');
+        // Normalizamos el nombre recibido
+        const nombreBuscado = normalizar(userFullName);
 
+        // Traemos todos los usuarios y comparamos contra su nombre completo
         const todos = await User.find({});
-        const user = todos.find(u =>
-            u.nombre.trim().toLowerCase() === nombre.toLowerCase() &&
-            u.apellido.trim().toLowerCase() === apellido.toLowerCase()
-        );
+        const user = todos.find(u => {
+            const nombreCompleto = normalizar(`${u.nombre} ${u.apellido}`);
+            return nombreCompleto === nombreBuscado;
+        });
 
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
@@ -378,16 +383,15 @@ const adminCancelarTurnoTemporalmente = async (req, res) => {
             return res.status(400).json({ message: 'Faltan datos requeridos.' });
         }
 
-        // Limpiar y separar nombre/apellido
-        const partes = userFullName.trim().split(' ').filter(Boolean);
-        const apellido = partes.pop().trim();
-        const nombre = partes.join(' ').trim();
+        // Normalizamos el nombre recibido
+        const nombreBuscado = normalizar(userFullName);
 
+        // Traemos todos los usuarios y comparamos contra su nombre completo
         const todos = await User.find({});
-        const user = todos.find(u =>
-            u.nombre.trim().toLowerCase() === nombre.toLowerCase() &&
-            u.apellido.trim().toLowerCase() === apellido.toLowerCase()
-        );
+        const user = todos.find(u => {
+            const nombreCompleto = normalizar(`${u.nombre} ${u.apellido}`);
+            return nombreCompleto === nombreBuscado;
+        });
 
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
@@ -702,16 +706,15 @@ const adminEliminarTurnoRecuperado = async (req, res) => {
             return res.status(400).json({ message: 'Faltan datos requeridos.' });
         };
 
-        // Separar nombre y apellido
-        const partes = userFullName.trim().split(' ').filter(Boolean);
-        const apellido = partes.pop().trim();
-        const nombre = partes.join(' ').trim();
+        // Normalizamos el nombre recibido
+        const nombreBuscado = normalizar(userFullName);
 
+        // Traemos todos los usuarios y comparamos contra su nombre completo
         const todos = await User.find({});
-        const user = todos.find(u =>
-            u.nombre.trim().toLowerCase() === nombre.toLowerCase() &&
-            u.apellido.trim().toLowerCase() === apellido.toLowerCase()
-        );
+        const user = todos.find(u => {
+            const nombreCompleto = normalizar(`${u.nombre} ${u.apellido}`);
+            return nombreCompleto === nombreBuscado;
+        });
 
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado.' });
 
