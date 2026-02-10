@@ -105,26 +105,10 @@ const setUserSelections = async (req, res) => {
             }
         }
 
-        /*// Aplicar cambio temporal (Volver a la lógica original de 2 cambios/mes)
+        // Aplicar cambio temporal
         if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
             if (userSelection.changesThisMonth >= 2) {
                 return res.status(403).json({ message: 'Ya alcanzaste el límite de 2 cambios este mes.' });
-            }
-            userSelection.changesThisMonth += 1;
-        } else {
-            userSelection.changesThisMonth = 1;
-        }*/
-
-        // Aplicar cambio temporal
-        if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
-            // Verificar si tiene viernes en sus turnos originales
-            const tieneViernes = userSelection.originalSelections.some(sel => sel.day === 'Viernes');
-            const limiteMaximo = tieneViernes ? 3 : 2;
-            
-            if (userSelection.changesThisMonth >= limiteMaximo) {
-                return res.status(403).json({ 
-                    message: `Ya alcanzaste el límite de ${limiteMaximo} cambios este mes.` 
-                });
             }
             userSelection.changesThisMonth += 1;
         } else {
@@ -514,25 +498,9 @@ const guardarTurnoParaRecuperar = async (req, res) => {
         userSelection.lastChange.getMonth() === hoy.getMonth() &&
         userSelection.lastChange.getFullYear() === hoy.getFullYear();
 
-        /*if (sameMonth) {
+        if (sameMonth) {
             if (userSelection.changesThisMonth >= 2) {
                 return res.status(403).json({ message: 'Ya alcanzaste el límite de 2 cambios este mes.' });
-            } else {
-                userSelection.changesThisMonth += 1;
-            }
-        } else {
-            userSelection.changesThisMonth = 1;
-        }*/
-
-        if (sameMonth) {
-            // Verificar si tiene viernes en sus turnos originales
-            const tieneViernes = userSelection.originalSelections.some(sel => sel.day === 'Viernes');
-            const limiteMaximo = tieneViernes ? 3 : 2;
-            
-            if (userSelection.changesThisMonth >= limiteMaximo) {
-                return res.status(403).json({ 
-                    message: `Ya alcanzaste el límite de ${limiteMaximo} cambios este mes.` 
-                });
             } else {
                 userSelection.changesThisMonth += 1;
             }
