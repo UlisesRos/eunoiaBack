@@ -20,18 +20,42 @@ const deleteUser = async (req, res) => {
 
 const editUser = async (req, res) => {
     try {
+        // Primero obtenemos el usuario actual para comparar
+        const userActual = await User.findById(req.params.id);
+        
+        if (!userActual) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+
+        // Actualizamos el usuario
         const updatedUser = await User.findByIdAndUpdate(
             req.params.id,
             req.body, 
             { new: true }
         );
 
-        if (!updatedUser) {
-            return res.status(404).json({ message: 'Usuario no encontrado' });
+        // Si cambiaron los diasSemanales, limpiamos los turnos originales
+        if (req.body.diasSemanales && req.body.diasSemanales !== userActual.diasSemanales) {
+            const userSelection = await UserSelection.findOne({ user: req.params.id });
+            
+            if (userSelection) {
+                // Limpiamos originalSelections para forzar al usuario a elegir nuevos turnos
+                userSelection.originalSelections = [];
+                // También limpiamos temporales por si acaso
+                userSelection.temporarySelections = [];
+                // Reseteamos el contador de cambios
+                userSelection.changesThisMonth = 0;
+                userSelection.lastChange = null;
+                
+                await userSelection.save();
+                
+                console.log(`✅ Se limpiaron los turnos del usuario ${updatedUser.nombre} ${updatedUser.apellido} debido al cambio de diasSemanales de ${userActual.diasSemanales} a ${req.body.diasSemanales}`);
+            }
         }
 
         res.status(200).json(updatedUser);
     } catch (error) {
+        console.error('Error al actualizar el usuario:', error);
         res.status(500).json({ message: 'Error al actualizar el usuario', error });
     } 
 };
