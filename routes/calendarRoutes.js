@@ -1,18 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const { 
-        getUserSelections, 
-        setUserSelections, 
-        adminMoverUsuario, 
-        getAllTurnosPorHorario, 
-        marcarFeriado, 
+const {
+        getUserSelections,
+        setUserSelections,
+        adminMoverUsuario,
+        getAllTurnosPorHorario,
+        marcarFeriado,
         getFeriados,
-        quitarFeriado, 
-        resetUserSelections, 
-        eliminarTurnoPorEstaSemana, 
-        guardarTurnoParaRecuperar, 
-        listarTurnosRecuperables, 
-        usarTurnoRecuperado, 
+        quitarFeriado,
+        resetUserSelections,
+        eliminarTurnoPorEstaSemana,
+        guardarTurnoParaRecuperar,
+        listarTurnosRecuperables,
+        usarTurnoRecuperado,
         adminCancelarTurnoTemporalmente,
         listarTurnosRecuperadosUsados,
         limpiarTurnosRecuperadosViejos,
@@ -20,7 +20,13 @@ const {
         listarTodosLosTurnosRecuperadosUsados,
         adminResetToOriginals,
         adminEliminarTurnoRecuperado,
-        usuarioEliminarTurnoRecuperado
+        usuarioEliminarTurnoRecuperado,
+        getSchedule,
+        addHour,
+        removeHour,
+        getClosedSlots,
+        cerrarHorario,
+        abrirHorario,
     } = require('../controllers/calendarController');
 const auth = require('../middleware/authMiddleware');
 
@@ -43,6 +49,16 @@ router.get('/turnos-recuperados-todos', auth, listarTodosLosTurnosRecuperadosUsa
 router.post('/limpiar-turnos-recuperados-viejos', auth, limpiarTurnosRecuperadosViejos);
 router.post('/admin-eliminar-turno-recuperado', auth, adminEliminarTurnoRecuperado);
 router.post('/usuario-eliminar-turno-recuperado', auth, usuarioEliminarTurnoRecuperado);
-router.post('/set-original-selections', auth, setOriginalSelections)
+router.post('/set-original-selections', auth, setOriginalSelections);
+
+// Horario permanente (schedule config)
+router.get('/schedule', auth, getSchedule);
+router.post('/schedule/add-hour', auth, addHour);
+router.post('/schedule/remove-hour', auth, removeHour);
+
+// Horarios cerrados por fecha
+router.get('/closed-slots', auth, getClosedSlots);
+router.post('/closed-slot', auth, cerrarHorario);
+router.post('/open-slot', auth, abrirHorario);
 
 module.exports = router;

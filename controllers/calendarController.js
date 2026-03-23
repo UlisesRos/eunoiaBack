@@ -1,11 +1,26 @@
 // controllers/calendarController.js
 const UserSelection = require('../models/UserSelection');
-const User = require('../models/User'); // Para consultar diasSemanales del usuario
-const Holiday = require('../models/Holiday'); // Para consultar feriados
-const RecoverableTurn = require('../models/RecoverableTurn'); // Para manejar turnos recuperables
+const User = require('../models/User');
+const Holiday = require('../models/Holiday');
+const RecoverableTurn = require('../models/RecoverableTurn');
+const ScheduleConfig = require('../models/ScheduleConfig');
+const ClosedSlot = require('../models/ClosedSlot');
+
+// Horario base que se usa para inicializar la base de datos la primera vez
+const DEFAULT_SCHEDULE = {
+    lunes:     ['08:00', '09:00', '10:00', '17:00', '18:00', '19:00', '20:00'],
+    martes:    ['07:00', '08:00', '09:00', '10:00', '17:00', '18:00', '19:00', '20:00'],
+    'miércoles': ['08:00', '09:00', '17:00', '18:00', '19:00', '20:00'],
+    jueves:    ['07:00', '08:00', '09:00', '10:00', '17:00', '18:00', '19:00', '20:00'],
+    viernes:   ['08:00', '09:00', '17:00', '18:00', '19:00'],
+};
 
 // Función para normalizar un string (quita espacios extras y pasa a minúsculas)
 const normalizar = (str) => str.trim().replace(/\s+/g, ' ').toLowerCase();
+
+// Filtra entradas placeholder que se usan para marcar "sin turnos esta semana"
+const filtrarPlaceholders = (selections) =>
+    selections.filter(s => s.day !== '__placeholder__');
 
 // Helper para saber si estamos en el mismo mes/año
 function sameMonth(date1, date2) {
@@ -25,14 +40,18 @@ const getUserSelections = async (req, res) => {
             return res.json({ selections: [] });
         }
 
-        const selectionsToShow = userSelection.temporarySelections.length > 0
-            ? userSelection.temporarySelections
+        const hasTemporary = userSelection.temporarySelections.length > 0 &&
+            !userSelection.temporarySelections.every(s => s.day === '__placeholder__');
+
+        const selectionsToShow = hasTemporary
+            ? filtrarPlaceholders(userSelection.temporarySelections)
             : userSelection.originalSelections;
 
         return res.json({
             selections: selectionsToShow,
             originalSelections: userSelection.originalSelections || [],
-            changesThisMonth: userSelection.changesThisMonth || 0
+            changesThisMonth: userSelection.changesThisMonth || 0,
+            tieneTemporales: userSelection.temporarySelections.length > 0
         });
     } catch (error) {
         console.error(error);
@@ -236,8 +255,11 @@ const getAllTurnosPorHorario = async (req, res) => {
 
         allSelections.forEach(sel => {
             const { originalSelections = [], temporarySelections = [] } = sel;
-            const usarTemporales = temporarySelections.length > 0;
-            const source = usarTemporales ? temporarySelections : originalSelections;
+            const tieneTemporalesReales = temporarySelections.some(s => s.day !== '__placeholder__');
+            const usarTemporales = temporarySelections.length > 0 && tieneTemporalesReales;
+            const source = usarTemporales
+                ? filtrarPlaceholders(temporarySelections)
+                : originalSelections;
 
             source.forEach(({ day, hour }) => {
                 const key = `${day}-${hour}`;
@@ -739,7 +761,7 @@ const adminEliminarTurnoRecuperado = async (req, res) => {
         await turno.save();
 
         return res.json({
-            message: `El turno recuperado de ${turno.user.nombre} ${turno.user.apellido} fue eliminado. Ahora puede volver a usarlo.`
+            message: `El turno recuperado de ${user.nombre} ${user.apellido} fue eliminado. Ahora puede volver a usarlo.`
         });
 
     } catch (error) {
@@ -782,6 +804,124 @@ const usuarioEliminarTurnoRecuperado = async (req, res) => {
     }
 };
 
+// ─── SCHEDULE CONFIG ──────────────────────────────────────────────────────────
+
+// Obtener el horario de todos los días (auto-seed si no existe)
+const getSchedule = async (req, res) => {
+    try {
+        const count = await ScheduleConfig.countDocuments();
+        if (count === 0) {
+            const docs = Object.entries(DEFAULT_SCHEDULE).map(([day, hours]) => ({ day, hours }));
+            await ScheduleConfig.insertMany(docs);
+        }
+        const schedules = await ScheduleConfig.find();
+        const result = {};
+        schedules.forEach(s => { result[s.day] = s.hours; });
+        res.json(result);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener el horario.' });
+    }
+};
+
+// Agregar un horario permanente a un día
+const addHour = async (req, res) => {
+    try {
+        const { day, hour } = req.body;
+        if (!day || !hour) return res.status(400).json({ message: 'Faltan datos.' });
+
+        const config = await ScheduleConfig.findOne({ day });
+        if (!config) return res.status(404).json({ message: 'Día no encontrado.' });
+
+        if (config.hours.includes(hour)) {
+            return res.status(400).json({ message: 'Ese horario ya existe en ese día.' });
+        }
+
+        config.hours.push(hour);
+        config.hours.sort(); // Ordena HH:MM correctamente
+        await config.save();
+
+        res.json({ message: `Horario ${hour} agregado al ${day}.`, hours: config.hours });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al agregar el horario.' });
+    }
+};
+
+// Eliminar un horario permanente de un día
+const removeHour = async (req, res) => {
+    try {
+        const { day, hour } = req.body;
+        if (!day || !hour) return res.status(400).json({ message: 'Faltan datos.' });
+
+        const config = await ScheduleConfig.findOne({ day });
+        if (!config) return res.status(404).json({ message: 'Día no encontrado.' });
+
+        if (!config.hours.includes(hour)) {
+            return res.status(400).json({ message: 'Ese horario no existe en ese día.' });
+        }
+
+        config.hours = config.hours.filter(h => h !== hour);
+        await config.save();
+
+        res.json({ message: `Horario ${hour} eliminado del ${day}.`, hours: config.hours });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al eliminar el horario.' });
+    }
+};
+
+// ─── CLOSED SLOTS ─────────────────────────────────────────────────────────────
+
+// Obtener horarios cerrados en un rango de fechas
+const getClosedSlots = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const filter = {};
+        if (startDate && endDate) {
+            filter.date = { $gte: startDate, $lte: endDate };
+        }
+        const slots = await ClosedSlot.find(filter);
+        res.json(slots);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al obtener los horarios cerrados.' });
+    }
+};
+
+// Cerrar un horario en una fecha específica
+const cerrarHorario = async (req, res) => {
+    try {
+        const { date, hour } = req.body;
+        if (!date || !hour) return res.status(400).json({ message: 'Faltan datos.' });
+
+        await ClosedSlot.findOneAndUpdate(
+            { date, hour },
+            { date, hour },
+            { upsert: true, new: true }
+        );
+
+        res.json({ message: `Horario ${hour} del ${date} marcado como cerrado.` });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al cerrar el horario.' });
+    }
+};
+
+// Reabrir un horario en una fecha específica
+const abrirHorario = async (req, res) => {
+    try {
+        const { date, hour } = req.body;
+        if (!date || !hour) return res.status(400).json({ message: 'Faltan datos.' });
+
+        await ClosedSlot.deleteOne({ date, hour });
+        res.json({ message: `Horario ${hour} del ${date} reabierto.` });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error al reabrir el horario.' });
+    }
+};
+
 module.exports = {
     getUserSelections,
     setUserSelections,
@@ -802,5 +942,13 @@ module.exports = {
     listarTodosLosTurnosRecuperadosUsados,
     adminResetToOriginals,
     adminEliminarTurnoRecuperado,
-    usuarioEliminarTurnoRecuperado
+    usuarioEliminarTurnoRecuperado,
+    // Schedule config
+    getSchedule,
+    addHour,
+    removeHour,
+    // Closed slots
+    getClosedSlots,
+    cerrarHorario,
+    abrirHorario,
 };

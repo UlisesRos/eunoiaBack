@@ -68,7 +68,7 @@ const register = async (req, res) => {
         await sendEmail(email, 'Registro exitoso', `Hola ${nombre}, te registraste correctamente en el estudio de pilates.`);
 
         // Generar token JWT
-        const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
         res.status(201).json({
             message: 'Usuario registrado correctamente.',
@@ -106,7 +106,7 @@ const login = async (req, res) => {
         const token = jwt.sign(
             { id: user._id, email: user.email },
             process.env.JWT_SECRET,
-            { expiresIn: '1h' }
+            { expiresIn: '30d' }
         );
 
         res.status(200).json({
