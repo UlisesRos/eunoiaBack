@@ -24,9 +24,9 @@ cron.schedule('0 0 1 * *', async () => {
     }
 }, { timezone: 'America/Argentina/Buenos_Aires' });
 
-// Reinicio semanal: cada sábado a las 23:59
+// Reinicio semanal: cada viernes a las 23:59
 // Limpia los temporarySelections para que la semana siguiente use los originales
-cron.schedule('59 23 * * 6', async () => {
+cron.schedule('59 23 * * 5', async () => {
     try {
         console.log('[CRON] Reiniciando selecciones temporales semanales...');
         await UserSelection.updateMany({}, {

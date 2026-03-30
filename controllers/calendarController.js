@@ -201,8 +201,10 @@ const eliminarTurnoPorEstaSemana = async (req, res) => {
             return res.status(400).json({ message: 'No hay turnos registrados.' });
         }
 
-        const base = userSelection.temporarySelections.length > 0
-            ? userSelection.temporarySelections
+        const tieneTemporalesReales = userSelection.temporarySelections.length > 0 &&
+            userSelection.temporarySelections.some(s => s.day !== '__placeholder__');
+        const base = tieneTemporalesReales
+            ? filtrarPlaceholders(userSelection.temporarySelections)
             : userSelection.originalSelections;
 
         const nuevosTemporales = base.filter(
@@ -236,6 +238,11 @@ const resetUserSelections = async (req, res) => {
 
         userSelection.temporarySelections = [];
         userSelection.lastChange = null;
+
+        // Devolver el cambio mensual (misma lógica que adminResetToOriginals)
+        if (userSelection.changesThisMonth && userSelection.changesThisMonth > 0) {
+            userSelection.changesThisMonth -= 1;
+        }
 
         await userSelection.save();
 
@@ -344,6 +351,22 @@ const adminMoverUsuario = async (req, res) => {
             userSelection.originalSelections.push({ day: newTurn.day, hour: newTurn.hour });
         }
 
+        // Sincronizar temporarySelections si existen y son reales
+        const tieneTemporalesReales = userSelection.temporarySelections.length > 0 &&
+            userSelection.temporarySelections.some(s => s.day !== '__placeholder__');
+
+        if (tieneTemporalesReales) {
+            userSelection.temporarySelections = userSelection.temporarySelections.filter(
+                t => !(t.day === current.day && t.hour === current.hour)
+            );
+            const yaExisteEnTemp = userSelection.temporarySelections.some(
+                t => t.day === newTurn.day && t.hour === newTurn.hour
+            );
+            if (!yaExisteEnTemp) {
+                userSelection.temporarySelections.push({ day: newTurn.day, hour: newTurn.hour });
+            }
+        }
+
         await userSelection.save();
         return res.json({ message: 'Cambio realizado correctamente.' });
 
@@ -420,8 +443,10 @@ const adminCancelarTurnoTemporalmente = async (req, res) => {
         const userSelection = await UserSelection.findOne({ user: user._id });
         if (!userSelection) return res.status(400).json({ message: 'No hay turnos registrados.' });
 
-        const base = userSelection.temporarySelections.length > 0
-            ? userSelection.temporarySelections
+        const tieneTemporalesReales = userSelection.temporarySelections.length > 0 &&
+            userSelection.temporarySelections.some(s => s.day !== '__placeholder__');
+        const base = tieneTemporalesReales
+            ? filtrarPlaceholders(userSelection.temporarySelections)
             : userSelection.originalSelections;
 
         const nuevosTemporales = base.filter(
