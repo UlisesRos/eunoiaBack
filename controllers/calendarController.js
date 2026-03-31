@@ -102,6 +102,19 @@ const setUserSelections = async (req, res) => {
             return res.json({ message: 'Selección guardada correctamente.' });
         }
 
+        // Si el documento existe pero no tiene originales (admin reseteó diasSemanales),
+        // guardar como originales, no como temporales
+        if (userSelection.originalSelections.length === 0) {
+            if (selections.length !== maxDias) {
+                return res.status(400).json({ message: `Debés seleccionar exactamente ${maxDias} días.` });
+            }
+            userSelection.originalSelections = selections;
+            userSelection.temporarySelections = [];
+            userSelection.changesThisMonth = 0;
+            await userSelection.save();
+            return res.json({ message: 'Selección guardada correctamente.' });
+        }
+
         // Validar que no excedan la ocupación
         const countPromises = selections.map(async sel => {
             const usuariosOcupando = await UserSelection.find({ user: { $ne: userId } });
@@ -177,6 +190,7 @@ const setOriginalSelections = async (req, res) => {
         }
 
         userSelection.originalSelections = selections;
+        userSelection.temporarySelections = [];  // Clear temporals so calendar shows new originals
         await userSelection.save();
         return res.json({ message: 'Turnos originales actualizados correctamente.' });
     } catch (err) {
