@@ -27,10 +27,17 @@ const editUser = async (req, res) => {
             return res.status(404).json({ message: 'Usuario no encontrado' });
         }
 
-        // Actualizamos el usuario
+        const { nombre, apellido, celular, email, diasSemanales } = req.body;
+        const camposPermitidos = {};
+        if (nombre !== undefined) camposPermitidos.nombre = nombre;
+        if (apellido !== undefined) camposPermitidos.apellido = apellido;
+        if (celular !== undefined) camposPermitidos.celular = celular;
+        if (email !== undefined) camposPermitidos.email = email;
+        if (diasSemanales !== undefined) camposPermitidos.diasSemanales = diasSemanales;
+
         const updatedUser = await User.findByIdAndUpdate(
             req.params.id,
-            req.body, 
+            camposPermitidos,
             { new: true }
         );
 

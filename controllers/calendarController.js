@@ -115,32 +115,30 @@ const setUserSelections = async (req, res) => {
             return res.json({ message: 'Selección guardada correctamente.' });
         }
 
-        // Validar que no excedan la ocupación
-        const countPromises = selections.map(async sel => {
-            const usuariosOcupando = await UserSelection.find({ user: { $ne: userId } });
+        // Validar que no excedan la ocupación (una sola query, manejo correcto de __placeholder__)
+        const otrosUsuarios = await UserSelection.find({ user: { $ne: userId } });
 
-            const count = usuariosOcupando.filter(u => {
-                const usarTemp = u.temporarySelections?.length > 0;
-                const turnos = usarTemp ? u.temporarySelections : u.originalSelections;
+        for (const sel of selections) {
+            const count = otrosUsuarios.filter(u => {
+                const tieneTemporalesReales = u.temporarySelections?.some(s => s.day !== '__placeholder__');
+                const usarTemp = u.temporarySelections?.length > 0 && tieneTemporalesReales;
+                const turnos = usarTemp
+                    ? u.temporarySelections.filter(s => s.day !== '__placeholder__')
+                    : (u.originalSelections || []);
                 return turnos.some(t => t.day === sel.day && t.hour === sel.hour);
             }).length;
 
-            return count;
-        });
-
-        const counts = await Promise.all(countPromises);
-        for (let i = 0; i < counts.length; i++) {
-            if (counts[i] >= 7) {
+            if (count >= 7) {
                 return res.status(400).json({
-                    message: `El turno ${selections[i].day} ${selections[i].hour} ya está completo.`
+                    message: `El turno ${sel.day} ${sel.hour} ya está completo.`
                 });
             }
         }
 
         // Aplicar cambio temporal
         if (userSelection.lastChange && sameMonth(now, userSelection.lastChange)) {
-            if (userSelection.changesThisMonth >= 2) {
-                return res.status(403).json({ message: 'Ya alcanzaste el límite de 2 cambios este mes.' });
+            if (userSelection.changesThisMonth >= 4) {
+                return res.status(403).json({ message: 'Ya alcanzaste el límite de 4 cambios este mes.' });
             }
             userSelection.changesThisMonth += 1;
         } else {
@@ -275,6 +273,7 @@ const getAllTurnosPorHorario = async (req, res) => {
         const turnosMap = {};
 
         allSelections.forEach(sel => {
+            if (!sel.user) return; // usuario eliminado, ignorar
             const { originalSelections = [], temporarySelections = [] } = sel;
             const tieneTemporalesReales = temporarySelections.some(s => s.day !== '__placeholder__');
             const usarTemporales = temporarySelections.length > 0 && tieneTemporalesReales;
@@ -488,20 +487,87 @@ const adminCancelarTurnoTemporalmente = async (req, res) => {
 // Marcar un feriado
 const marcarFeriado = async (req, res) => {
     const { date } = req.body;
-    if (!date) return res.status(400).json({ message: 'Falta la fecha del feriado.'});
+    if (!date) return res.status(400).json({ message: 'Falta la fecha del feriado.' });
 
     try {
+        // 1. Registrar el feriado
         await Holiday.findOneAndUpdate(
-            {date},
-            {date},
+            { date },
+            { date },
             { upsert: true, new: true }
         );
-        res.json({ message: 'Feriado marcado correctamente.' });
+
+        // 2. Determinar el día de la semana (hora local)
+        const [year, month, dayNum] = date.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, dayNum);
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const dayName = dayNames[dateObj.getDay()];
+
+        // 3. Calcular el lunes de esa semana
+        const mondayOfWeek = new Date(year, month - 1, dayNum);
+        mondayOfWeek.setDate(mondayOfWeek.getDate() - ((mondayOfWeek.getDay() + 6) % 7));
+
+        // 4. Encontrar todos los usuarios con turnos ese día
+        const allSelections = await UserSelection.find().populate('user', '_id nombre apellido');
+        let afectados = 0;
+
+        for (const sel of allSelections) {
+            if (!sel.user) continue;
+
+            const tieneTemporalesReales = sel.temporarySelections.some(s => s.day !== '__placeholder__');
+            const effective = (sel.temporarySelections.length > 0 && tieneTemporalesReales)
+                ? filtrarPlaceholders(sel.temporarySelections)
+                : sel.originalSelections;
+
+            // Todos los turnos del usuario en ese día
+            const turnosDia = effective.filter(s => s.day === dayName);
+            if (turnosDia.length === 0) continue;
+
+            afectados++;
+
+            // 5a. Crear RecoverableTurn por cada turno de ese día
+            for (const turno of turnosDia) {
+                const existing = await RecoverableTurn.findOne({
+                    user: sel.user._id,
+                    originalDay: dayName,
+                    originalHour: turno.hour,
+                    cancelledWeek: mondayOfWeek,
+                    recovered: false
+                });
+                if (!existing) {
+                    await RecoverableTurn.create({
+                        user: sel.user._id,
+                        originalDay: dayName,
+                        originalHour: turno.hour,
+                        cancelledWeek: mondayOfWeek,
+                        recovered: false
+                    });
+                }
+            }
+
+            // 5b. Quitar todos los turnos de ese día de temporarySelections
+            if (tieneTemporalesReales) {
+                const nuevos = filtrarPlaceholders(sel.temporarySelections).filter(
+                    s => s.day !== dayName
+                );
+                sel.temporarySelections = nuevos.length > 0
+                    ? nuevos
+                    : [{ day: '__placeholder__', hour: '__none__' }];
+            } else {
+                const nuevos = sel.originalSelections.filter(s => s.day !== dayName);
+                sel.temporarySelections = nuevos.length > 0
+                    ? nuevos
+                    : [{ day: '__placeholder__', hour: '__none__' }];
+            }
+
+            await sel.save();
+        }
+
+        res.json({ message: 'Feriado marcado correctamente.', afectados });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error al guardar el feriado.' });
     }
-
 }
 
 // Obtener todos los feriados
@@ -522,6 +588,24 @@ const quitarFeriado = async (req, res) => {
 
     try {
         await Holiday.deleteOne({ date });
+
+        // Determinar día de semana y lunes de esa semana
+        const [year, month, dayNum] = date.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, dayNum);
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const dayName = dayNames[dateObj.getDay()];
+
+        const mondayOfWeek = new Date(year, month - 1, dayNum);
+        mondayOfWeek.setDate(mondayOfWeek.getDate() - ((mondayOfWeek.getDay() + 6) % 7));
+
+        // Eliminar los créditos recuperables no usados generados por este feriado
+        // (el slot vuelve a estar disponible, ya no corresponde recuperarlo)
+        await RecoverableTurn.deleteMany({
+            originalDay: dayName,
+            cancelledWeek: mondayOfWeek,
+            recovered: false
+        });
+
         res.json({ message: 'Feriado eliminado correctamente.' });
     } catch (error) {
         console.error(error);
@@ -560,8 +644,8 @@ const guardarTurnoParaRecuperar = async (req, res) => {
         userSelection.lastChange.getFullYear() === hoy.getFullYear();
 
         if (sameMonth) {
-            if (userSelection.changesThisMonth >= 2) {
-                return res.status(403).json({ message: 'Ya alcanzaste el límite de 2 cambios este mes.' });
+            if (userSelection.changesThisMonth >= 4) {
+                return res.status(403).json({ message: 'Ya alcanzaste el límite de 4 cambios este mes.' });
             } else {
                 userSelection.changesThisMonth += 1;
             }
@@ -903,6 +987,15 @@ const removeHour = async (req, res) => {
         config.hours = config.hours.filter(h => h !== hour);
         await config.save();
 
+        // Propagar: quitar este turno de todos los UserSelection que lo tengan
+        const dayCapitalized = day.charAt(0).toUpperCase() + day.slice(1);
+        await UserSelection.updateMany({}, {
+            $pull: {
+                originalSelections: { day: dayCapitalized, hour },
+                temporarySelections: { day: dayCapitalized, hour }
+            }
+        });
+
         res.json({ message: `Horario ${hour} eliminado del ${day}.`, hours: config.hours });
     } catch (error) {
         console.error(error);
@@ -934,13 +1027,83 @@ const cerrarHorario = async (req, res) => {
         const { date, hour } = req.body;
         if (!date || !hour) return res.status(400).json({ message: 'Faltan datos.' });
 
+        // 1. Registrar el slot cerrado
         await ClosedSlot.findOneAndUpdate(
             { date, hour },
             { date, hour },
             { upsert: true, new: true }
         );
 
-        res.json({ message: `Horario ${hour} del ${date} marcado como cerrado.` });
+        // 2. Determinar el día de la semana de esa fecha (en hora local)
+        const [year, month, dayNum] = date.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, dayNum);
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const dayName = dayNames[dateObj.getDay()];
+
+        // 3. Calcular el lunes de esa semana
+        const mondayOfWeek = new Date(year, month - 1, dayNum);
+        mondayOfWeek.setDate(mondayOfWeek.getDate() - ((mondayOfWeek.getDay() + 6) % 7));
+
+        // 4. Encontrar todos los usuarios que tenían ese día+hora en sus selecciones activas
+        const allSelections = await UserSelection.find().populate('user', '_id nombre apellido');
+        let afectados = 0;
+
+        for (const sel of allSelections) {
+            if (!sel.user) continue;
+
+            const tieneTemporalesReales = sel.temporarySelections.some(s => s.day !== '__placeholder__');
+            const effective = (sel.temporarySelections.length > 0 && tieneTemporalesReales)
+                ? filtrarPlaceholders(sel.temporarySelections)
+                : sel.originalSelections;
+
+            const tieneEsteTurno = effective.some(s => s.day === dayName && s.hour === hour);
+            if (!tieneEsteTurno) continue;
+
+            afectados++;
+
+            // 5a. Crear RecoverableTurn si no existe ya para este usuario/semana/turno
+            const existing = await RecoverableTurn.findOne({
+                user: sel.user._id,
+                originalDay: dayName,
+                originalHour: hour,
+                cancelledWeek: mondayOfWeek,
+                recovered: false
+            });
+            if (!existing) {
+                await RecoverableTurn.create({
+                    user: sel.user._id,
+                    originalDay: dayName,
+                    originalHour: hour,
+                    cancelledWeek: mondayOfWeek,
+                    recovered: false
+                });
+            }
+
+            // 5b. Actualizar temporarySelections para excluir el turno cerrado
+            if (tieneTemporalesReales) {
+                const nuevos = filtrarPlaceholders(sel.temporarySelections).filter(
+                    s => !(s.day === dayName && s.hour === hour)
+                );
+                sel.temporarySelections = nuevos.length > 0
+                    ? nuevos
+                    : [{ day: '__placeholder__', hour: '__none__' }];
+            } else {
+                // Basado en originales → crear temporales sin el turno cerrado
+                const nuevos = sel.originalSelections.filter(
+                    s => !(s.day === dayName && s.hour === hour)
+                );
+                sel.temporarySelections = nuevos.length > 0
+                    ? nuevos
+                    : [{ day: '__placeholder__', hour: '__none__' }];
+            }
+
+            await sel.save();
+        }
+
+        res.json({
+            message: `Horario ${hour} del ${date} marcado como cerrado.`,
+            afectados
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Error al cerrar el horario.' });
@@ -954,6 +1117,25 @@ const abrirHorario = async (req, res) => {
         if (!date || !hour) return res.status(400).json({ message: 'Faltan datos.' });
 
         await ClosedSlot.deleteOne({ date, hour });
+
+        // Determinar día de semana y lunes de esa semana
+        const [year, month, dayNum] = date.split('-').map(Number);
+        const dateObj = new Date(year, month - 1, dayNum);
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const dayName = dayNames[dateObj.getDay()];
+
+        const mondayOfWeek = new Date(year, month - 1, dayNum);
+        mondayOfWeek.setDate(mondayOfWeek.getDate() - ((mondayOfWeek.getDay() + 6) % 7));
+
+        // Eliminar los créditos recuperables no usados generados por este cierre
+        // (el slot vuelve a estar disponible, ya no corresponde recuperarlo)
+        await RecoverableTurn.deleteMany({
+            originalDay: dayName,
+            originalHour: hour,
+            cancelledWeek: mondayOfWeek,
+            recovered: false
+        });
+
         res.json({ message: `Horario ${hour} del ${date} reabierto.` });
     } catch (error) {
         console.error(error);

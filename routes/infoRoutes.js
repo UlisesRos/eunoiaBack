@@ -1,14 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getLatestInfoModal, createInfoModal, clearAllInfoModals } = require('../controllers/infoControllers');
+const auth = require('../middleware/authMiddleware');
+const adminMiddleware = require('../middleware/adminMiddleware');
 
-// GET para usuarios
 router.get('/info-modal', getLatestInfoModal);
-
-// POST para admin (restringilo con middleware si tenés autenticación)
-router.post('/info-modal', createInfoModal);
-
-// DELETE para admin
-router.post('/info-modal/clear', clearAllInfoModals);
+router.post('/info-modal', auth, adminMiddleware, createInfoModal);
+router.post('/info-modal/clear', auth, adminMiddleware, clearAllInfoModals);
 
 module.exports = router;
