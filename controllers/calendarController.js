@@ -704,7 +704,7 @@ const capitalize = s => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 const usarTurnoRecuperado = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { turnId, day, hour } = req.body;
+        const { turnId, day, hour, date } = req.body;
 
         if (!turnId || !day || !hour) {
             return res.status(400).json({ message: 'Faltan datos.' });
@@ -717,28 +717,24 @@ const usarTurnoRecuperado = async (req, res) => {
 
         const diaCapitalizado = capitalize(day);
 
-        // Calcular fecha exacta del día elegido, basándonos en si hoy es sábado o domingo
-        const today = new Date();
-        const dayOfWeek = today.getDay(); // 0 = domingo, 6 = sábado
-        const dayIndex = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'].indexOf(diaCapitalizado);
-
-        const monday = new Date(today);
-
-        if (dayOfWeek === 6) {
-            // sábado → saltamos al lunes siguiente
-            monday.setDate(today.getDate() + 2);
-        } else if (dayOfWeek === 0) {
-            // domingo → saltamos al lunes siguiente
-            monday.setDate(today.getDate() + 1);
+        // Usar la fecha exacta enviada por el frontend (evita desajuste de zona horaria
+        // que ocurría cuando el servidor UTC y el usuario en Argentina diferían de día)
+        let recoveryDate;
+        if (date) {
+            recoveryDate = new Date(date);
         } else {
-            // lunes a viernes → vamos al lunes actual
-            monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
+            // Fallback por si un cliente antiguo no envía la fecha
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const dayIndex = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'].indexOf(diaCapitalizado);
+            const monday = new Date(today);
+            if (dayOfWeek === 6) monday.setDate(today.getDate() + 2);
+            else if (dayOfWeek === 0) monday.setDate(today.getDate() + 1);
+            else monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
+            recoveryDate = new Date(monday);
+            recoveryDate.setDate(monday.getDate() + dayIndex);
         }
 
-        const recoveryDate = new Date(monday);
-        recoveryDate.setDate(monday.getDate() + dayIndex);
-
-        // Actualizar solo el modelo RecoverableTurn
         turno.recovered = true;
         turno.recoveryDate = recoveryDate;
         turno.assignedDay = diaCapitalizado;

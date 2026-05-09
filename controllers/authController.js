@@ -64,8 +64,9 @@ const register = async (req, res) => {
 
         await newUser.save();
 
-        // Enviar correo de bienvenida
-        await sendEmail(email, 'Registro exitoso', `Hola ${nombre}, te registraste correctamente en el estudio de pilates.`);
+        // Enviar correo de bienvenida en background para no bloquear la respuesta
+        sendEmail(email, 'Registro exitoso', `Hola ${nombre}, te registraste correctamente en el estudio de pilates.`)
+            .catch(err => console.error('Error enviando email de bienvenida:', err));
 
         // Generar token JWT
         const token = jwt.sign({ id: newUser._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
@@ -223,11 +224,27 @@ const resetPassword = async (req, res) => {
 };
 
 
+// Obtener datos actualizados del usuario actual (por token)
+const getMe = async (req, res) => {
+    const u = req.user;
+    res.status(200).json({
+        id: u._id,
+        nombre: u.nombre,
+        apellido: u.apellido,
+        email: u.email,
+        celular: u.celular,
+        diasSemanales: u.diasSemanales,
+        pago: u.pago,
+        rol: u.rol,
+    });
+};
+
 module.exports = {
     register,
     login,
     getAllUsers,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    getMe
 }
 
